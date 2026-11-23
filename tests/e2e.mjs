@@ -67,7 +67,7 @@ const server = http.createServer(async (req, res) => {
   }
   const body = await readBody(req);
   const json = (obj) => res.writeHead(200, { ...cors, 'Content-Type': 'application/json' }).end(JSON.stringify(obj));
-  if (req.url === '/v1/models') return json({ data: ['gpt-transcribe', 'gpt-4o-mini-transcribe', 'gpt-5-mini'].map((id) => ({ id })) });
+  if (req.url === '/v1/models') return json({ data: ['gpt-transcribe', 'gpt-5-mini'].map((id) => ({ id })) });
   if (req.url === '/v1/audio/transcriptions') {
     const file = /filename="([^"]+)"/.exec(body.toString('utf8'))?.[1];
     requests.formats.push({
@@ -89,7 +89,7 @@ const server = http.createServer(async (req, res) => {
     } else {
       text = ME[n % ME.length] ?? lastThem; // the mic "hears the speakers" once
       if (text === 'LEAK') {
-        // What gpt-4o-transcribe sometimes does on quiet audio: return its context instead of a transcript.
+        // What a transcriber sometimes does on quiet audio: return its context instead of a transcript.
         requests.leaks++;
         text = promptField(body);
       }
@@ -261,6 +261,18 @@ try {
   check((await lastOverlay()) === '#11110f', 'window buttons return to the page colour when the dialog closes');
   const savedTheme = JSON.parse(readFileSync(join(profile, 'prefs.json'), 'utf8')).theme;
   check(savedTheme?.background === '#11110f', 'the dimmed colour is never saved as the window background');
+
+  // A setting saved by an older version still names gpt-4o-mini-transcribe: it must not be used.
+  await db(main, () => new Promise((res) => {
+    const r = indexedDB.open('toru-desktop');
+    r.onsuccess = () => {
+      const tx = r.result.transaction('meta', 'readwrite');
+      const os = tx.objectStore('meta');
+      const g = os.get('settings');
+      g.onsuccess = () => os.put({ key: 'settings', value: { ...g.result.value, transcribeModel: 'gpt-4o-mini-transcribe' } });
+      tx.oncomplete = () => res();
+    };
+  }));
   const stored = await main.evaluate(() => window.toru.secrets.getApiKey());
   check(stored === 'sk-test-123', 'API key round-trips through the main process');
   const inDb = await db(main, () => new Promise((res) => {
@@ -319,7 +331,7 @@ try {
   const sent = requests.formats.filter((f) => f.file !== 'audio.wav');
   check(
     sent.length > 0 && sent.every((f) => f.model === 'gpt-transcribe' && f.languages.join() === 'si,en' && !f.language.length && f.keywords.includes('Priya') && f.keywords.includes('Q3 roadmap')),
-    'clips go to gpt-transcribe with the languages and the folder’s keywords',
+    'clips go to gpt-transcribe (even with an old model saved) with the languages and the folder’s keywords',
   );
   check(sent.every((f) => f.prompt.startsWith('Sinhala speech, written in Sinhala script') && !f.prompt.includes('Glossary')), 'the prompt asks for Sinhala script');
   await main.getByText(/repeated the call/).waitFor();

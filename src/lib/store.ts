@@ -3,7 +3,7 @@
 import { bridge } from './bridge';
 import * as db from './db';
 import { emit, subscribe } from './events';
-import { RECOMMENDED_TRANSCRIBE_MODEL } from './transcribeModels';
+import { TRANSCRIBE_MODEL, transcribeModelFor } from './transcribeModels';
 import { DEFAULT_TEMPLATE_ID } from './templates';
 import type { ChatMessage, Folder, Note, PendingChunk, RecordingState, Segment, Settings } from './types';
 
@@ -13,7 +13,7 @@ export const FOLDER_COLORS = ['#c9dc4c', '#7cc4e8', '#f0a07c', '#b9a3f0', '#e8c4
 
 export const DEFAULT_SETTINGS: Settings = {
   apiKey: '',
-  transcribeModel: RECOMMENDED_TRANSCRIBE_MODEL,
+  transcribeModel: TRANSCRIBE_MODEL,
   summaryModel: 'gpt-5-mini',
   language: '',
   notesLanguage: 'spoken',
@@ -53,9 +53,14 @@ function apiKey(): Promise<string> {
   return apiKeyCache;
 }
 
+/** Settings saved with an older transcription model (gpt-4o-…, whisper-1) use gpt-transcribe. */
+function withCurrentModel(settings: Settings): Settings {
+  return { ...settings, transcribeModel: transcribeModelFor(settings.transcribeModel) };
+}
+
 export async function getSettings(): Promise<Settings> {
   const [row, key] = await Promise.all([db.get<MetaRow<Partial<Settings>>>('meta', 'settings'), apiKey()]);
-  return { ...DEFAULT_SETTINGS, ...(row?.value ?? {}), apiKey: key };
+  return withCurrentModel({ ...DEFAULT_SETTINGS, ...(row?.value ?? {}), apiKey: key });
 }
 
 export async function saveSettings(patch: Partial<Settings>): Promise<Settings> {
@@ -69,7 +74,7 @@ export async function saveSettings(patch: Partial<Settings>): Promise<Settings> 
     value: { ...(cur?.value ?? {}), ...rest },
   }));
   emit({ type: 'settings' });
-  return { ...DEFAULT_SETTINGS, ...(row?.value ?? {}), apiKey: await apiKey() };
+  return withCurrentModel({ ...DEFAULT_SETTINGS, ...(row?.value ?? {}), apiKey: await apiKey() });
 }
 
 // --------------------------------------------------------------- recording

@@ -5,7 +5,7 @@ import { appName, nativeMicReader, parseMicUsage } from '../electron/meetings.ts
 import { isEcho, stripPromptCopy } from '../src/lib/echo.ts';
 import { languageLabel, getLanguage, LANGUAGES, notesLanguageRule, scriptHint, transcriptionLanguages } from '../src/lib/languages.ts';
 import { tokensPerCharFor } from '../src/lib/models.ts';
-import { cleanKeywords, effectiveTranscribeModel, isDeprecatedTranscribeModel, takesLanguageList } from '../src/lib/transcribeModels.ts';
+import { cleanKeywords, transcribeModelFor } from '../src/lib/transcribeModels.ts';
 import { splitTitle, summaryPrompt } from '../src/lib/templates.ts';
 
 const REG = String.raw`
@@ -121,14 +121,12 @@ test('token estimates follow the script', () => {
   assert.ok(mixed > english * 1.6 && mixed < sinhala, `mixed ${mixed}`);
 });
 
-test('transcription models: old ones are replaced once shut down', () => {
-  const before = Date.UTC(2027, 0, 10);
-  const after = Date.UTC(2027, 2, 1);
-  assert.equal(effectiveTranscribeModel('gpt-4o-mini-transcribe', before), 'gpt-4o-mini-transcribe');
-  assert.equal(effectiveTranscribeModel('gpt-4o-mini-transcribe', after), 'gpt-transcribe');
-  assert.equal(effectiveTranscribeModel('gpt-transcribe', after), 'gpt-transcribe');
-  assert.ok(isDeprecatedTranscribeModel('whisper-1'));
-  assert.ok(takesLanguageList('gpt-transcribe') && !takesLanguageList('gpt-4o-transcribe'));
+test('transcription always uses gpt-transcribe, never the older models', () => {
+  for (const old of ['gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'gpt-4o-transcribe-diarize', 'whisper-1', ' Whisper-1 ', '', undefined]) {
+    assert.equal(transcribeModelFor(old), 'gpt-transcribe', String(old));
+  }
+  assert.equal(transcribeModelFor('gpt-transcribe'), 'gpt-transcribe');
+  assert.equal(transcribeModelFor('gpt-transcribe-2'), 'gpt-transcribe-2'); // a newer model typed in is kept
   assert.deepEqual(cleanKeywords([' Priya ', 'priya', 'Q3 <roadmap>', '', 'line\nbreak']), ['Priya', 'Q3 roadmap', 'line break']);
 });
 
