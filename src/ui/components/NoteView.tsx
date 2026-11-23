@@ -1,15 +1,15 @@
 // One meeting. While it's recording, the page is a notepad with a recording
 // dock; afterwards it shows the enhanced notes (with your own notes one click
 // away), the speaker-labelled transcript, and Ask.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { bridge } from '../../lib/bridge';
 import { downloadFile, noteToMarkdown, safeFilename } from '../../lib/export';
 import { errorMessage, formatClock, formatDate, formatDuration, timeAgo } from '../../lib/format';
-import { discardAudio, generateSummary, retryPendingChunks, speakerLabel } from '../../lib/pipeline';
+import { discardAudio, generateSummary, retryPendingChunks, speakerLabel, transcriptForAI } from '../../lib/pipeline';
 import * as store from '../../lib/store';
 import { getTemplate, TEMPLATES } from '../../lib/templates';
 import type { Note, RecordingState, Segment } from '../../lib/types';
-import { elapsedMs, useDebouncedSave, useFolders, useLive, useNote, useNow, useSettings } from '../hooks';
+import { elapsedMs, useDebouncedSave, useFolders, useLive, useNote, useNow, useSegments, useSettings } from '../hooks';
 import { IconCopy, IconDownload, IconPause, IconPlay, IconRefresh, IconSparkle, IconStop, IconTrash } from '../icons';
 import { Markdown, toggleTask } from '../Markdown';
 import { toast } from '../toast';
@@ -29,11 +29,7 @@ export function NoteView(props: {
 }) {
   const { noteId, recording } = props;
   const note = useNote(noteId);
-  const segments = useLive(
-    () => store.getSegments(noteId),
-    [noteId],
-    (e) => e.type === 'segments' && e.noteId === noteId,
-  );
+  const segments = useSegments(noteId);
   const pending =
     useLive(
       () => store.countChunks(noteId),
@@ -486,19 +482,58 @@ interface Turn {
   key: number;
   speaker: Segment['speaker'];
   startMs: number;
+  echo: boolean;
   lines: Segment[];
 }
 
-/** Consecutive lines from the same speaker form one turn (one bubble). */
+/** Consecutive lines from one speaker form a turn: one name and time, then a bubble per line. */
 function toTurns(segments: Segment[]): Turn[] {
   const turns: Turn[] = [];
   for (const s of segments) {
     const last = turns.at(-1);
-    if (last && last.speaker === s.speaker && !s.echo === !last.lines[0].echo) last.lines.push(s);
-    else turns.push({ key: s.index, speaker: s.speaker, startMs: s.startMs, lines: [s] });
+    if (last && last.speaker === s.speaker && last.echo === !!s.echo) last.lines.push(s);
+    else turns.push({ key: s.index, speaker: s.speaker, startMs: s.startMs, echo: !!s.echo, lines: [s] });
   }
   return turns;
 }
+
+// Rows and bubbles are memoised on the line object, which useSegments keeps
+// stable, so a new line renders one element instead of the whole transcript.
+
+const Bubble = memo(function Bubble({ line }: { line: Segment }) {
+  return (
+    <p className="bubble" title={formatClock(line.startMs)}>
+      {line.text}
+    </p>
+  );
+});
+
+const Row = memo(function Row({ line }: { line: Segment }) {
+  return (
+    <div className="seg-row">
+      <span className="ts">{formatClock(line.startMs)}</span>
+      <p className="text">{line.text}</p>
+    </div>
+  );
+});
+
+const TurnView = memo(
+  function TurnView({ turn, who }: { turn: Turn; who: string }) {
+    return (
+      <div className={`turn turn-${turn.speaker} ${turn.echo ? 'turn-echo' : ''}`}>
+        <div className="turn-head">
+          <span className="who">{who}</span>
+          <span className="ts">{formatClock(turn.startMs)}</span>
+          {turn.echo && <span className="ts">· echo of the call, not sent to the AI</span>}
+        </div>
+        {turn.lines.map((line) => (
+          <Bubble key={line.index} line={line} />
+        ))}
+      </div>
+    );
+  },
+  (a, b) => a.who === b.who && a.turn.echo === b.turn.echo && a.turn.lines.length === b.turn.lines.length && a.turn.lines.every((l, i) => l === b.turn.lines[i]),
+);
 
 function TranscriptPanel(props: { note: Note; segments: Segment[] | undefined; live: boolean; paused: boolean; pending: number }) {
   const { note, segments, live, pending } = props;
@@ -509,30 +544,39 @@ function TranscriptPanel(props: { note: Note; segments: Segment[] | undefined; l
   if (!segments) return <Skeleton lines={4} />;
   const transcribing = !live && pending > 0 && ['processing', 'recording', 'interrupted'].includes(note.status);
   const call = note.sources !== 'mic';
+  const mine = shown.filter((s) => s.speaker === 'me' && !s.echo).length;
+  const theirs = shown.filter((s) => s.speaker === 'them').length;
+  // A conversation reads as chat bubbles; one voice (a talk, or only one side
+  // spoke) reads better as paragraphs with the times down the side.
+  const conversation = call && mine > 0 && theirs > 0;
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(transcriptForAI(note, segments ?? []));
+      toast('Transcript copied');
+    } catch (e) {
+      toast(errorMessage(e), 'error');
+    }
+  }
 
   return (
-    <div className={`transcript ${call ? 'transcript-call' : ''}`}>
-      {turns.map((t) => {
-        const who = speakerLabel(t.speaker, note);
-        const echo = !!t.lines[0].echo;
-        return call ? (
-          <div key={t.key} className={`turn turn-${t.speaker} ${echo ? 'turn-echo' : ''}`}>
-            <div className="turn-head">
-              <span className="who">{who}</span>
-              <span className="ts">{formatClock(t.startMs)}</span>
-              {echo && <span className="ts">· echo of the call, not sent to the AI</span>}
-            </div>
-            <div className="bubble">{t.lines.map((l) => l.text).join(' ')}</div>
-          </div>
-        ) : (
-          t.lines.map((s) => (
-            <div className="seg-row" key={s.index}>
-              <span className="ts">{formatClock(s.startMs)}</span>
-              <div className="text">{s.text}</div>
-            </div>
-          ))
-        );
-      })}
+    <div className="transcript-wrap">
+      {shown.length > 0 && (
+        <div className="transcript-bar">
+          <span>
+            {shown.length} {shown.length === 1 ? 'line' : 'lines'}
+            {conversation ? ` · ${mine} from you, ${theirs} from the call` : ''}
+          </span>
+          <button className="link-quiet" onClick={copy}>
+            Copy transcript
+          </button>
+        </div>
+      )}
+      <div className={`transcript ${conversation ? 'transcript-call' : 'transcript-doc'}`}>
+        {conversation
+          ? turns.map((t) => <TurnView key={t.key} turn={t} who={speakerLabel(t.speaker, note)} />)
+          : shown.map((line) => <Row key={line.index} line={line} />)}
+      </div>
       {live && (
         <div className="listening">
           {props.paused ? (

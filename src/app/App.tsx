@@ -78,17 +78,19 @@ export function App() {
     store.ensureInbox().catch(console.error);
   }, []);
 
-  // The main process navigates here from the tray, the widget and notifications.
-  useEffect(
-    () =>
-      bridge.app.onNavigate((target) => {
-        const [path, search] = target.split('?');
-        const error = new URLSearchParams(search ?? '').get('error');
-        if (error) toast(error, 'error');
-        go(path || '/');
-      }),
-    [],
-  );
+  // The main process navigates here from the tray, the widget and notifications:
+  // by message while the window is open, or in the address it opens with.
+  useEffect(() => {
+    const open = (target: string) => {
+      const [path, search] = target.split('?');
+      const error = new URLSearchParams(search ?? '').get('error');
+      if (error) toast(error, 'error');
+      go(path || '/');
+    };
+    const initial = location.hash.replace(/^#/, '');
+    if (initial.includes('?')) open(initial);
+    return bridge.app.onNavigate(open);
+  }, []);
 
   useEffect(() => {
     setQuery('');

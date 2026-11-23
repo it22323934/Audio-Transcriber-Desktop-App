@@ -7,7 +7,7 @@ const common = {
   platform: 'node',
   target: 'node22',
   format: 'cjs',
-  external: ['electron'],
+  external: ['electron', 'koffi'], // koffi loads a native .node binary at run time
   sourcemap: true,
   logLevel: 'warning',
 };

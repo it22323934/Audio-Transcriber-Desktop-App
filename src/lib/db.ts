@@ -92,6 +92,36 @@ export async function getRange<T>(name: StoreName, range: IDBKeyRange): Promise<
   return done(os.getAll(range)) as Promise<T[]>;
 }
 
+/** Several records by key, in one transaction (missing ones are left out). */
+export async function getMany<T>(name: StoreName, keys: IDBValidKey[]): Promise<T[]> {
+  if (!keys.length) return [];
+  const { tx, os } = await store(name, 'readonly');
+  const found: T[] = [];
+  for (const k of keys) {
+    const req = os.get(k);
+    req.onsuccess = () => {
+      if (req.result !== undefined) found.push(req.result as T);
+    };
+  }
+  await complete(tx);
+  return found;
+}
+
+/** The last `count` records of a key range, read backwards with a cursor (newest first). */
+export async function getLast<T>(name: StoreName, range: IDBKeyRange, count: number): Promise<T[]> {
+  const { tx, os } = await store(name, 'readonly');
+  const found: T[] = [];
+  const req = os.openCursor(range, 'prev');
+  req.onsuccess = () => {
+    const cursor = req.result;
+    if (!cursor) return;
+    found.push(cursor.value as T);
+    if (found.length < count) cursor.continue();
+  };
+  await complete(tx);
+  return found;
+}
+
 export async function getRangeKeys(name: StoreName, range: IDBKeyRange): Promise<IDBValidKey[]> {
   const { os } = await store(name, 'readonly');
   return done(os.getAllKeys(range));

@@ -61,6 +61,13 @@
       "allowToChangeInstallationDirectory": true,
       "shortcutName": "TORU",
       "artifactName": "TORU-Setup-${version}.${ext}"
-    }
+    },
+    "asarUnpack": [
+      "node_modules/koffi/**",
+      "node_modules/@koromix/**"
+    ]
+  },
+  "dependencies": {
+    "koffi": "^3.3.8"
   }
 }

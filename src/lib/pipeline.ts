@@ -1,13 +1,17 @@
 // Transcription and enhanced-notes steps, shared by the recorder window (live)
 // and the UI (retry / regenerate buttons).
-import { isEcho, overlaps } from './echo';
+import { isEcho, overlaps, stripPromptCopy } from './echo';
 import { errorMessage, formatClock, formatDate, formatDuration, sleep } from './format';
 import { chat, OpenAIError, transcribe } from './openai';
 import * as store from './store';
 import { splitTitle, summaryPrompt } from './templates';
 import type { Folder, Note, PendingChunk, Segment, Speaker } from './types';
 
-const PROMPT_CONTEXT_CHARS = 500;
+/**
+ * How much of the previous lines the transcriber gets as context. Enough to keep
+ * names and spelling consistent; more makes it likelier to copy the context back.
+ */
+const PROMPT_CONTEXT_CHARS = 200;
 
 function transcriptionPrompt(folder: Folder | undefined, previousText: string): string {
   const parts: string[] = [];
@@ -37,12 +41,19 @@ export function transcriptForAI(note: Pick<Note, 'sources'>, segments: Segment[]
 }
 
 /**
+ * How many clips either side of a new line can overlap it in time. A clip is
+ * at least ~3 s and the echo window is 5 s either way, so 24 is a wide margin.
+ */
+const ECHO_NEIGHBOURS = 24;
+
+/**
  * Re-checks the "me" lines around a new line for speaker echo and stores any
  * that changed. Runs after every transcribed chunk, in whichever order the two
- * channels finish.
+ * channels finish. Reads only the lines near it, so it costs the same in
+ * minute one and hour two.
  */
 async function updateEchoes(noteId: string, around: Segment): Promise<void> {
-  const segments = await store.getSegments(noteId);
+  const segments = await store.getSegmentsNear(noteId, around.index, ECHO_NEIGHBOURS);
   if (!segments.some((s) => s.speaker === 'them')) return;
   const changed = segments
     .filter((s) => s.speaker === 'me' && overlaps(s, around))
@@ -60,14 +71,16 @@ async function transcribeChunk(chunk: PendingChunk, previousText: string): Promi
     return '';
   }
   const folder = await store.getFolder(note.folderId);
-  const text = await transcribe({
+  const prompt = transcriptionPrompt(folder, previousText);
+  const raw = await transcribe({
     apiKey: settings.apiKey,
     model: settings.transcribeModel,
     audio: chunk.audio,
     name: `${chunk.speaker}.wav`,
     language: folder?.language || settings.language || undefined,
-    prompt: transcriptionPrompt(folder, previousText),
+    prompt,
   });
+  const text = stripPromptCopy(raw, prompt);
   if (text) {
     const segment: Segment = {
       noteId: chunk.noteId,

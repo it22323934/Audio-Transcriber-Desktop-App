@@ -228,15 +228,37 @@ export async function getAllSegments(): Promise<Segment[]> {
   return db.getAll<Segment>('segments');
 }
 
+/** Just these lines of a note (for live updates, instead of re-reading the whole transcript). */
+export async function getSegmentsByIndex(noteId: string, indexes: number[]): Promise<Segment[]> {
+  return db.getMany<Segment>('segments', indexes.map((i) => [noteId, i]));
+}
+
+/**
+ * Lines whose index is within `spread` of `index`. Indexes follow the order
+ * clips were cut in, so these are the lines said around the same time.
+ */
+export async function getSegmentsNear(noteId: string, index: number, spread: number): Promise<Segment[]> {
+  const lines = await db.getRange<Segment>('segments', IDBKeyRange.bound([noteId, Math.max(0, index - spread)], [noteId, index + spread]));
+  return lines.sort(byTime);
+}
+
+/** The most recent lines of a note, in speaking order, read without loading the rest. */
+export async function getRecentSegments(noteId: string, count: number): Promise<Segment[]> {
+  const lines = await db.getLast<Segment>('segments', IDBKeyRange.bound([noteId, 0], [noteId, Infinity]), count);
+  return lines.sort(byTime);
+}
+
 export async function putSegment(segment: Segment): Promise<void> {
   await db.put('segments', segment);
-  emit({ type: 'segments', noteId: segment.noteId });
+  emit({ type: 'segments', noteId: segment.noteId, indexes: [segment.index] });
 }
 
 export async function putSegments(segments: Segment[]): Promise<void> {
   if (!segments.length) return;
   await db.putMany('segments', segments);
-  for (const noteId of new Set(segments.map((s) => s.noteId))) emit({ type: 'segments', noteId });
+  for (const noteId of new Set(segments.map((s) => s.noteId))) {
+    emit({ type: 'segments', noteId, indexes: segments.filter((s) => s.noteId === noteId).map((s) => s.index) });
+  }
 }
 
 // ---------------------------------------------------------------- messages

@@ -4,7 +4,8 @@
 export type AppEvent =
   | { type: 'folders' }
   | { type: 'notes'; noteId?: string }
-  | { type: 'segments'; noteId: string }
+  /** `indexes`: the lines that were added or changed; without it, reload the whole transcript. */
+  | { type: 'segments'; noteId: string; indexes?: number[] }
   | { type: 'chunks'; noteId: string }
   | { type: 'messages'; noteId: string }
   | { type: 'recording' }

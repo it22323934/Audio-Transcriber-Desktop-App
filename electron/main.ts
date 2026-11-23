@@ -201,7 +201,12 @@ function themeColors() {
     : { dark: false, background: '#fcfcfa', text: '#1f1e1a' });
 }
 
-function createMainWindow(show: boolean): BrowserWindow {
+/**
+ * The main window exists only while it's open: closing it frees its renderer
+ * (tens of MB) while TORU waits in the tray, and opening it loads it again at
+ * `route`. The recorder and the widget keep running either way.
+ */
+function createMainWindow(show: boolean, route = '/'): BrowserWindow {
   const colors = themeColors();
   const win = new BrowserWindow({
     width: 1220,
@@ -216,15 +221,12 @@ function createMainWindow(show: boolean): BrowserWindow {
     titleBarOverlay: { color: colors.background, symbolColor: colors.text, height: 44 },
     webPreferences: { ...preloadPrefs(), spellcheck: true },
   });
-  void win.loadURL(pageUrl('index.html', '#/'));
+  void win.loadURL(pageUrl('index.html', `#${route}`));
   win.once('ready-to-show', () => {
     if (show) win.show();
   });
-  win.on('close', (e) => {
-    if (quitting) return;
-    e.preventDefault();
-    win.hide();
-    trayHint();
+  win.on('close', () => {
+    if (!quitting) trayHint();
   });
   win.on('focus', refreshWidget);
   win.on('blur', refreshWidget);
@@ -234,12 +236,16 @@ function createMainWindow(show: boolean): BrowserWindow {
   win.on('restore', refreshWidget);
   win.on('closed', () => {
     mainWin = null;
+    refreshWidget();
   });
   return win;
 }
 
 function showMain(route?: string): void {
-  if (!mainWin) mainWin = createMainWindow(false);
+  if (!mainWin) {
+    mainWin = createMainWindow(true, route); // shown once it has loaded, already at the route
+    return;
+  }
   const win = mainWin;
   if (route) win.webContents.send(IPC.navigate, route);
   if (win.isMinimized()) win.restore();
@@ -304,11 +310,10 @@ async function callRecorder(cmd: RecorderCommand): Promise<RecorderReply> {
 async function startRecording(opts: { app?: string; sources?: AudioSources } = {}): Promise<void> {
   const reply = await callRecorder({ type: 'START', ...opts });
   if (!reply.ok) {
-    showMain();
     if (Notification.isSupported() && !mainWin?.isFocused()) {
       new Notification({ title: 'Couldn’t start recording', body: reply.error ?? '', icon: icon('icon256.png') }).show();
     }
-    mainWin?.webContents.send(IPC.navigate, `/?error=${encodeURIComponent(reply.error ?? 'Couldn’t start recording.')}`);
+    showMain(`/?error=${encodeURIComponent(reply.error ?? 'Couldn’t start recording.')}`);
   }
 }
 
@@ -655,7 +660,8 @@ void app.whenReady().then(() => {
 
   createRecorder();
   createWidget();
-  mainWin = createMainWindow(!process.argv.includes('--hidden'));
+  // Started at sign-in: wait in the tray without loading the main window at all.
+  if (!process.argv.includes('--hidden')) mainWin = createMainWindow(true);
 
   tray = new Tray(icon('tray.png'));
   tray.on('click', () => showMain());

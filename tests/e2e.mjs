@@ -27,10 +27,17 @@ const THEM = [
   'Priya will own the vendor contract and report back on Friday.',
   'We agreed to cut the analytics dashboard from this quarter.',
 ];
-const ME = ['Sounds good, I can take the release notes.', null /* echo */, 'I will send the summary to the team tonight.'];
+const ME = ['Sounds good, I can take the release notes.', null /* echo */, 'I will send the summary to the team tonight.', 'LEAK'];
 const counters = { me: 0, them: 0 };
 let lastThem = '';
-const requests = { transcribe: 0, summary: 0, ask: 0 };
+const requests = { transcribe: 0, summary: 0, ask: 0, leaks: 0 };
+
+/** The multipart "prompt" field: the context TORU gives the transcriber. */
+function promptField(body) {
+  const text = body.toString('utf8');
+  const m = /name="prompt"\r\n\r\n([\s\S]*?)\r\n--/.exec(text);
+  return m ? m[1] : '';
+}
 
 function readBody(req) {
   return new Promise((res) => {
@@ -64,6 +71,11 @@ const server = http.createServer(async (req, res) => {
       lastThem = text;
     } else {
       text = ME[n % ME.length] ?? lastThem; // the mic "hears the speakers" once
+      if (text === 'LEAK') {
+        // What gpt-4o-transcribe sometimes does on quiet audio: return its context instead of a transcript.
+        requests.leaks++;
+        text = promptField(body);
+      }
     }
     return json({ text });
   }
@@ -388,6 +400,27 @@ try {
   }, 'recovered after restart', 30_000);
   check(!!recovered.summary, 'a meeting interrupted by quitting is finished on the next start');
 
+  // ----------------------------------- a copy of the prompt never sticks
+  const allSegments = await db(main, () => new Promise((res) => {
+    const r = indexedDB.open('toru-desktop');
+    r.onsuccess = () => {
+      const q = r.result.transaction('segments').objectStore('segments').getAll();
+      q.onsuccess = () => res(q.result);
+    };
+  }));
+  check(requests.leaks > 0 && !allSegments.some((x) => /Glossary/i.test(x.text)), `text copied from the transcriber's prompt is dropped (${requests.leaks} leak(s) simulated)`);
+
+  // --------------- closing the window frees it; opening a meeting reopens it
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().includes('/index.html'))?.close());
+  await waitFor(async () => !(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((w) => w.webContents.getURL().includes('/index.html')))), 'main window closed');
+  check(true, 'closing the main window destroys it (TORU stays in the tray)');
+  const firstNote = (await readNotes(widget)).filter((n) => n.sources === 'both').sort((x, y) => x.createdAt - y.createdAt)[0]; // the first call
+  await widget.evaluate((id) => window.toru.widget.act({ type: 'open-note', noteId: id }), firstNote.id);
+  main = await waitFor(async () => app.windows().find((w) => w.url().includes('/index.html')), 'main window reopened');
+  main.on('pageerror', (e) => errors.push(`[index] pageerror: ${e.message}`));
+  await main.getByRole('radio', { name: 'Enhanced' }).waitFor();
+  check(main.url().includes(`#/note/${firstNote.id}`), 'opening a meeting brings the window back at that meeting');
+
   // ---------------------------------------------------- home, light theme
   await main.goto(main.url().replace(/#.*$/, '#/'));
   await main.getByRole('heading', { name: 'Today' }).waitFor();
@@ -397,6 +430,13 @@ try {
   await main.emulateMedia({ colorScheme: 'light' });
   await main.getByRole('radio', { name: 'Enhanced' }).waitFor();
   await shot(main, '16-note-light');
+  await main.emulateMedia({ colorScheme: 'dark' });
+  await main.goto(main.url().replace(/#.*$/, `#/note/${firstNote.id}`));
+  await main.getByRole('tab', { name: 'Transcript' }).click();
+  await main.locator('.turn-them .bubble').first().waitFor();
+  check((await main.locator('.turn-them .bubble').count()) >= 2 || (await main.locator('.turn').count()) >= 2, 'a conversation shows a bubble per line');
+  await shot(main, '16b-transcript-conversation');
+  await main.emulateMedia({ colorScheme: 'light' });
 
   // Search across transcripts.
   await main.getByPlaceholder('Search meetings').fill('vendor contract');

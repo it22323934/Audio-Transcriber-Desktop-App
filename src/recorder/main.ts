@@ -31,8 +31,8 @@ const SPEECH_LEVEL = 0.004;
 const NOISE_MARGIN = 2.5;
 /** The background estimate never rises above this, so loud rooms can't mute speech. */
 const MAX_NOISE_FLOOR = 0.03;
-/** Less sound than this (300 ms) isn't worth transcribing. */
-const MIN_SOUND_BLOCKS = 6;
+/** Less sound than this (500 ms) isn't worth transcribing: clips of noise invite made-up text. */
+const MIN_SOUND_BLOCKS = 10;
 /** Silence kept around the speech when a chunk is trimmed. */
 const PAD_BLOCKS = 6;
 /** Pages showing a level meter ping this often; levels stop flowing without a recent ping. */
@@ -354,6 +354,7 @@ async function openCapture(sources: AudioSources, settings: Settings): Promise<C
       return worklet;
     });
     await ctx.resume();
+    watchLevels(true);
     return { ctx, sources: opened, worklets };
   } catch (e) {
     for (const s of opened) s.stream?.getTracks().forEach((t) => t.stop());
@@ -363,6 +364,7 @@ async function openCapture(sources: AudioSources, settings: Settings): Promise<C
 }
 
 async function closeCapture(c: Capture): Promise<void> {
+  watchLevels(false);
   for (const w of c.worklets) {
     w.port.onmessage = null;
     w.disconnect();
@@ -376,11 +378,19 @@ function onBlock(speaker: Speaker, pcm: Int16Array, level: number): void {
   if (session && state && !state.paused) session.push(speaker, pcm, level);
 }
 
-// Level meters update ~10x a second, and only while something shows one.
-setInterval(() => {
-  if (!capture || Date.now() - levelWatchedAt > LEVEL_WATCH_TIMEOUT_MS) return;
-  emit({ type: 'level', me: levels.me, them: levels.them });
-}, 100);
+// Level meters update ~10x a second, only while recording and something shows one.
+let levelTimer: ReturnType<typeof setInterval> | null = null;
+function watchLevels(on: boolean): void {
+  if (on && !levelTimer) {
+    levelTimer = setInterval(() => {
+      if (Date.now() - levelWatchedAt > LEVEL_WATCH_TIMEOUT_MS) return;
+      emit({ type: 'level', me: levels.me, them: levels.them });
+    }, 100);
+  } else if (!on && levelTimer) {
+    clearInterval(levelTimer);
+    levelTimer = null;
+  }
+}
 
 // ---------------------------------------------------------------- commands
 

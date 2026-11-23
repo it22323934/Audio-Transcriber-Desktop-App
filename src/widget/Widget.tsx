@@ -82,8 +82,9 @@ function Recording() {
   const note = useNote(recording?.noteId ?? '');
   const now = useNow(!!recording && !recording.paused);
   const [open, setOpen] = useState(false);
+  // Only the last few lines are shown, so only the last few are read.
   const segments = useLive(
-    () => (recording ? store.getSegments(recording.noteId) : Promise.resolve([])),
+    () => (recording ? store.getRecentSegments(recording.noteId, 10) : Promise.resolve([])),
     [recording?.noteId],
     (e) => e.type === 'segments' && e.noteId === recording?.noteId,
   );

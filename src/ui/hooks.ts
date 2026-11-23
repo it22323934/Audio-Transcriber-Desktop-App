@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { emit, subscribe, type AppEvent } from '../lib/events';
 import * as store from '../lib/store';
-import type { Folder, Note, RecordingState, Settings } from '../lib/types';
+import type { Folder, Note, RecordingState, Segment, Settings } from '../lib/types';
 
 /** Matching events within this window trigger a single reload. */
 const RELOAD_COALESCE_MS = 50;
@@ -52,6 +52,55 @@ export function useLive<T>(load: () => Promise<T>, deps: unknown[], matches: (e:
   }, deps);
 
   return value;
+}
+
+/**
+ * A note's transcript in speaking order, kept up to date incrementally: when
+ * new lines arrive only those are read, so a two-hour meeting costs the same
+ * per update as a two-minute one. Unchanged lines keep their object identity,
+ * so memoised rows don't re-render.
+ */
+export function useSegments(noteId: string): Segment[] | undefined {
+  const [list, setList] = useState<Segment[]>();
+  useEffect(() => {
+    let alive = true;
+    const lines = new Map<number, Segment>();
+    let pending: Set<number> | 'all' | null = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const publish = () => {
+      if (alive) setList([...lines.values()].sort(store.byTime));
+    };
+    // Merge rather than replace: lines are never deleted on their own (only with the note).
+    const merge = (found: Segment[]) => {
+      for (const s of found) lines.set(s.index, s);
+      publish();
+    };
+    const fail = (e: unknown) => console.error('[toru] loading the transcript failed', e);
+    setList(undefined);
+    store.getSegments(noteId).then(merge, fail);
+    const flush = () => {
+      timer = undefined;
+      const batch = pending;
+      pending = null;
+      if (batch === 'all') store.getSegments(noteId).then(merge, fail);
+      else if (batch) store.getSegmentsByIndex(noteId, [...batch]).then(merge, fail);
+    };
+    const unsubscribe = subscribe((e) => {
+      if (e.type !== 'segments' || e.noteId !== noteId) return;
+      if (!e.indexes || pending === 'all') pending = 'all';
+      else {
+        pending ??= new Set();
+        for (const i of e.indexes) pending.add(i);
+      }
+      timer ??= setTimeout(flush, RELOAD_COALESCE_MS);
+    });
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+      unsubscribe();
+    };
+  }, [noteId]);
+  return list;
 }
 
 export function useSettings(): Settings | undefined {

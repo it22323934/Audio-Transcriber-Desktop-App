@@ -39,6 +39,29 @@ export function overlaps(a: { startMs: number; endMs: number }, b: { startMs: nu
   return a.startMs < b.endMs + slack && a.endMs > b.startMs - slack;
 }
 
+/** Share of a sentence's word pairs found in the transcriber's prompt for it to count as copied. */
+const COPY_SHARE = 0.6;
+
+/**
+ * Removes what the transcriber copied from its prompt. It's given the end of
+ * the previous lines as context, and on quiet or unclear audio it sometimes
+ * returns that context instead of transcribing, which repeats a paragraph
+ * that was already said. Sentences of 4+ words that mostly match the prompt
+ * are dropped; everything else is kept as it was.
+ */
+export function stripPromptCopy(text: string, prompt: string): string {
+  if (!prompt.trim() || !text.trim()) return text.trim();
+  const pool = new Set(pairs(words(prompt)));
+  const sentences = text.match(/[^.!?…]+(?:[.!?…]+|$)\s*/g) ?? [text];
+  const kept = sentences.filter((sentence) => {
+    const w = words(sentence);
+    if (w.length < MIN_WORDS) return true;
+    const grams = pairs(w);
+    return grams.filter((g) => pool.has(g)).length / grams.length < COPY_SHARE;
+  });
+  return kept.join('').replace(/\s+/g, ' ').trim();
+}
+
 /** True when `me` mostly repeats what was said in the "them" lines around it. */
 export function isEcho(me: Line, lines: Line[]): boolean {
   if (me.speaker !== 'me') return false;

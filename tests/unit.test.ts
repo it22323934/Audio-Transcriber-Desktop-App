@@ -1,8 +1,8 @@
 // Fast checks for the pure logic: node --test tests/unit.test.ts
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { appName, parseMicUsage } from '../electron/meetings.ts';
-import { isEcho } from '../src/lib/echo.ts';
+import { appName, nativeMicReader, parseMicUsage } from '../electron/meetings.ts';
+import { isEcho, stripPromptCopy } from '../src/lib/echo.ts';
 import { splitTitle, summaryPrompt } from '../src/lib/templates.ts';
 
 const REG = String.raw`
@@ -42,6 +42,14 @@ test('names call apps from registry keys', () => {
   assert.equal(appName('C:#Program Files#obs-studio#bin#64bit#obs64.exe'), undefined);
 });
 
+test('reads live microphone sessions from Windows', { skip: process.platform !== 'win32' }, async () => {
+  const everything = await nativeMicReader((exe) => exe);
+  assert.ok(everything, 'the native reader loads');
+  assert.ok(Array.isArray(everything()));
+  const calls = await nativeMicReader();
+  assert.ok(calls!().every((app) => typeof app === 'string'));
+});
+
 const them = (startMs: number, text: string) => ({ startMs, endMs: startMs + 6000, speaker: 'them' as const, text });
 const me = (startMs: number, text: string) => ({ startMs, endMs: startMs + 4000, speaker: 'me' as const, text });
 
@@ -58,6 +66,21 @@ test('keeps genuine replies', () => {
   assert.equal(isEcho(me(1500, 'Okay, sounds good.'), lines), false); // too short to judge
   // Same words, but long after: not an echo.
   assert.equal(isEcho(me(60_000, 'the plan is to ship the beta to customers on Friday'), lines), false);
+});
+
+test('drops text the transcriber copied from its prompt', () => {
+  // The context TORU sent: the end of the previous lines (here cut mid-word, as it is).
+  const prompt = "nd we'll be, in regards to the database side, we'll be using something like Postgres as well as MongoDB. So unstructured data. And yeah, so those are some of the main things.";
+  const leaked = "And we'll be, in regards to the database side, we'll be using something like Postgres as well as MongoDB. So unstructured data. And yeah, so those are some of the main things.";
+  assert.equal(stripPromptCopy(leaked, prompt), 'So unstructured data.'); // only a short fragment survives
+  assert.equal(
+    stripPromptCopy(`${leaked} Next we'll set up Kafka topics for the order service.`, prompt),
+    "So unstructured data. Next we'll set up Kafka topics for the order service.",
+  );
+  const fresh = 'Now open the Docker compose file and start the containers.';
+  assert.equal(stripPromptCopy(fresh, prompt), fresh);
+  assert.equal(stripPromptCopy('Yeah. That is it.', prompt), 'Yeah. That is it.');
+  assert.equal(stripPromptCopy(fresh, ''), fresh);
 });
 
 test('splits the title line off enhanced notes', () => {
