@@ -45,7 +45,7 @@ test('names call apps from registry keys', () => {
   assert.equal(appName('C:#Program Files#obs-studio#bin#64bit#obs64.exe'), undefined);
 });
 
-test('reads live microphone sessions from Windows', { skip: process.platform !== 'win32' }, async () => {
+test('reads live microphone sessions from Windows', { skip: process.platform !== 'win32' || !!process.env.CI }, async () => { // CI machines have no audio devices
   const everything = await nativeMicReader((exe) => exe);
   assert.ok(everything, 'the native reader loads');
   assert.ok(Array.isArray(everything()));
