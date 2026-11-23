@@ -46,19 +46,17 @@ export const DEFAULT_TOKENS_PER_CHAR = 0.28;
  * the first answer.
  */
 export function tokensPerCharFor(sample: string): number {
-  const text = sample.slice(0, 4000);
-  let letters = 0;
-  let latin = 0;
-  let cjk = 0;
-  for (const ch of text) {
-    if (!/\p{L}/u.test(ch)) continue;
-    letters++;
-    if (/\p{Script=Latin}/u.test(ch)) latin++;
-    else if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(ch)) cjk++;
+  // Per character, as the estimate is multiplied by the character count: in
+  // Sinhala, Tamil or Hindi the vowel signs are characters of their own.
+  let chars = 0;
+  let tokens = 0;
+  for (const ch of sample.slice(0, 4000)) {
+    chars++;
+    if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(ch)) tokens += 1.1;
+    else if (/[\p{L}\p{M}]/u.test(ch) && !/\p{Script=Latin}/u.test(ch)) tokens += 0.8;
+    else tokens += DEFAULT_TOKENS_PER_CHAR; // Latin letters, digits, spaces, punctuation
   }
-  if (!letters) return DEFAULT_TOKENS_PER_CHAR;
-  const other = letters - latin - cjk;
-  return (latin * DEFAULT_TOKENS_PER_CHAR + other * 0.8 + cjk * 1.1) / letters;
+  return chars ? tokens / chars : DEFAULT_TOKENS_PER_CHAR;
 }
 
 export function estimateTokens(chars: number, tokensPerChar = DEFAULT_TOKENS_PER_CHAR): number {

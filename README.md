@@ -18,7 +18,7 @@ Everything stays on your computer. The only server it talks to is `api.openai.co
 
 ## Install
 
-**Installer:** run `release\TORU-Setup-0.1.0.exe` (build it with `npm run dist`, below). It's not code-signed, so Windows SmartScreen may say "Windows protected your PC". Click **More info → Run anyway**.
+**Installer:** download `TORU-Setup-<version>.exe` from the [latest release](https://github.com/it22323934/Audio-Transcriber-Desktop-App/releases/latest) and run it (or build it yourself with `npm run dist`, below). It's not code-signed, so Windows SmartScreen may say "Windows protected your PC". Click **More info → Run anyway**. To update, quit TORU from the tray and run the new installer; your meetings are kept.
 
 **From source** (Node 20+):
 
@@ -49,6 +49,11 @@ When the call app lets go of the microphone (you left the call), the widget asks
 
 Choose **In person** on the home page, or **Take notes in person** in the tray. Only the microphone is recorded, and lines aren't split into Me/Them.
 
+### When nothing can be heard
+
+- **While recording:** if your microphone sends no signal at all for 8 seconds (muted in Windows or on the headset, or the wrong mic chosen), a warning appears above the dock and in the floating recorder: **Your microphone isn't sending any sound**, with a link to Windows' microphone settings. If nobody has been heard on either side for a minute, it says **Nothing has been heard for a minute** and suggests what to check. The warnings clear as soon as sound comes back.
+- **When you stop:** if nothing was said and you typed no notes, TORU doesn't keep an empty meeting. It tells you instead: **Nothing was heard in "…", so it wasn't saved**, in the main window and the floating recorder. If you typed notes, the meeting is kept with them.
+
 ### Headphones or speakers
 
 With headphones the two sides stay perfectly separate. With speakers your mic also hears the call. TORU spots those lines (a "Me" line that repeats what "Them" just said), hides them and leaves them out of what the AI reads. The transcript tells you how many it hid; **Show** reveals them.
@@ -62,6 +67,17 @@ With headphones the two sides stay perfectly separate. With speakers your mic al
 - **Ask:** questions about this meeting, answered from the transcript with times like **[12:34]**. Follow-ups remember the conversation; long conversations can be compacted. Same context meter as the extension.
 - **Export:** copy or download a meeting as Markdown, or a whole folder from its page. Backups are under **Settings → Your data**.
 
+## Languages
+
+TORU transcribes about 80 languages, and can write the notes in a different language from the meeting's.
+
+- **Spoken language** (Settings → Transcription, or per folder). Auto-detect works for many meetings, but pick the language for anything other than English. TORU then tells the transcriber to expect that language plus English, because people often mix in English terms. It also asks for the language's own script, so Sinhala comes back as සිංහල, not romanised or translated. Put names and technical terms in the folder's **Names and terms**; they're sent as keywords.
+- **How well it works.** OpenAI's models are strong for about 57 languages, including English, German, French, Hindi and Tamil. Languages marked **less accurate** in the list, Sinhala among them, are understood too, but expect more mistakes, especially with mixed Sinhala–English speech, several people talking at once, or poor audio.
+- **Check first.** Settings → **Test** transcribes one second of silence with your model and language, so you know straight away whether OpenAI accepts them.
+- **Write notes in** (Settings → Notes and questions, or per folder). Choose **The language that was spoken** (the default) or any other language, for example English notes from a Sinhala meeting.
+- **Ask** answers in the language you write your question in.
+- **Display and search.** Sinhala, Tamil, Hindi and other scripts display with Windows' Nirmala UI font, and search works in any script.
+
 ## The tray and closing the window
 
 Closing the window keeps TORU running in the tray so it can notice calls. **Right-click the tray icon → Quit TORU** to quit. The tray icon gets a red dot while recording. **Start TORU when I sign in** (Settings) starts it in the tray at login (installed app only).
@@ -72,11 +88,13 @@ If you quit, or Windows restarts, during a meeting, nothing is lost. The audio t
 
 | Part | Default model | Roughly |
 |---|---|---|
-| Transcription | `gpt-4o-mini-transcribe` | ~$0.003 per minute of speech per side. A 30-minute call where both sides talk ≈ 10–15¢ |
+| Transcription | `gpt-transcribe` | check OpenAI's pricing page; the older `gpt-4o-mini-transcribe` was ~$0.003 per minute of speech per side, so a 30-minute call where both sides talk ≈ 10–15¢ |
 | Enhanced notes | `gpt-5-mini` | about 1¢ per meeting |
 | Ask | `gpt-5-mini` | well under 1¢ per question for a typical meeting |
 
 Silence isn't sent: each side is only transcribed while someone on it is talking, and TORU learns your mic's background hiss so it doesn't pay to transcribe a quiet room. Check OpenAI's pricing page for current prices.
+
+**Transcription models.** OpenAI shuts down `gpt-4o-mini-transcribe`, `gpt-4o-transcribe` and `whisper-1` on **26 February 2027**. New setups use `gpt-transcribe`, OpenAI's current model. If Settings still names an older one, it shows a **Switch** button, and after that date TORU switches by itself.
 
 ## Privacy
 
@@ -98,6 +116,10 @@ Silence isn't sent: each side is only transcribed while someone on it is talking
 | The prompt says Teams is using your mic when you're not in a call | Teams sometimes keeps the microphone open in the background (the taskbar shows the mic icon). Press ✕; TORU asks again only when Teams next picks the mic up |
 | The same sentences appear twice in a transcript | Older recordings could have this: on quiet audio the transcriber sometimes returned the context TORU gave it. New recordings drop that copied text |
 | Ctrl+Alt+R does nothing | Another app has that shortcut. Use the tray icon or the home page |
+| "Your microphone isn't sending any sound" | Unmute the mic (Windows, headset button, or the call app's system mute), or pick the right one under Settings → Listening |
+| "Nothing was heard … so it wasn't saved" | The recording had no speech on either side. Check the call plays on this computer and the mic is on, then record again |
+| Test says OpenAI refused a transcription | Read the message. A language may not be accepted by that model: choose Auto-detect or another model |
+| A Sinhala (or other) meeting comes back in English letters or translated | Set the **Spoken language** for the folder or in Settings; Auto-detect can mistake it |
 
 ---
 
@@ -110,6 +132,17 @@ npm run test:unit  # call detection, echo and copy detection, templates
 npm run test:e2e   # builds, then drives the real app end to end
 npm run test:perf  # idle CPU, a two-hour meeting's live updates, memory with the window closed
 ```
+
+### Releases
+
+Push a version tag and GitHub Actions builds the installer on Windows and publishes it as a release:
+
+```bash
+npm version patch          # bumps package.json and creates the tag, e.g. v0.1.1
+git push --follow-tags
+```
+
+The workflow (`.github/workflows/release.yml`) runs the type checks and unit tests, builds with `npm run dist`, and attaches `TORU-Setup-<version>.exe` to the release for that tag.
 
 The end-to-end suite launches the app with a throwaway profile, a mock OpenAI server and synthetic "voices" for the mic and the call. It goes through setup, a live call with both speakers (including an echo line), the floating widget and quick notes, pause/stop, enhanced notes with an AI title and checkboxes, Ask, a detected Zoom call that auto-stops, an in-person meeting, and quitting mid-meeting then recovering. Screenshots go to `.e2e-out/`. TORU's windows appear on screen while it runs.
 
@@ -153,7 +186,7 @@ IndexedDB "toru-desktop" ◄── shared by all three windows; changes broadcas
 | `electron/` | Main process, preload (the `window.toru` bridge), call detection |
 | `src/shared/bridge.ts` | The typed contract between the main process and the windows |
 | `src/recorder/` | Capture, chunking, transcription queue, recovery after a crash |
-| `src/lib/` | Data store, OpenAI client, pipeline, templates, echo detection, Ask, export |
+| `src/lib/` | Data store, OpenAI client, pipeline, templates, languages, echo and copy detection, Ask, export |
 | `src/ui/` | Design system (`styles.css`), shared components, Markdown renderer |
 | `src/app/`, `src/widget/` | The main window and the floating widget |
 | `scripts/` | Dev runner, esbuild config, icon generator |

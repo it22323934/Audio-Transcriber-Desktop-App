@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { appName, nativeMicReader, parseMicUsage } from '../electron/meetings.ts';
 import { isEcho, stripPromptCopy } from '../src/lib/echo.ts';
+import { languageLabel, getLanguage, LANGUAGES, notesLanguageRule, scriptHint, transcriptionLanguages } from '../src/lib/languages.ts';
+import { tokensPerCharFor } from '../src/lib/models.ts';
+import { cleanKeywords, effectiveTranscribeModel, isDeprecatedTranscribeModel, takesLanguageList } from '../src/lib/transcribeModels.ts';
 import { splitTitle, summaryPrompt } from '../src/lib/templates.ts';
 
 const REG = String.raw`
@@ -83,6 +86,52 @@ test('drops text the transcriber copied from its prompt', () => {
   assert.equal(stripPromptCopy(fresh, ''), fresh);
 });
 
+test('Sinhala words survive echo and copy detection', () => {
+  // Sinhala puts vowel signs (combining marks) inside words; they must not split them.
+  const line = 'අද අපි Java Spring Boot පාවිච්චි කරලා microservice එකක් හදනවා';
+  const lines = [{ startMs: 0, endMs: 6000, speaker: 'them' as const, text: `${line}.` }];
+  assert.equal(isEcho({ startMs: 1000, endMs: 5000, speaker: 'me', text: line }, lines), true);
+  assert.equal(isEcho({ startMs: 1000, endMs: 5000, speaker: 'me', text: 'Kafka සහ Postgres දෙකම අපිට ඕනද කියලා මට කියන්න' }, lines), false);
+  assert.equal(stripPromptCopy(`${line}. හරි, මම GitHub repository එක බලන්නම්.`, line), 'හරි, මම GitHub repository එක බලන්නම්.');
+});
+
+test('language list and hints', () => {
+  assert.ok(LANGUAGES.length >= 75);
+  assert.equal(new Set(LANGUAGES.map((l) => l.code)).size, LANGUAGES.length, 'no duplicate codes');
+  assert.ok(LANGUAGES.every((l) => /^[a-z]{2}$/.test(l.code)), 'ISO-639-1 codes');
+  assert.equal(languageLabel(getLanguage('si')!), 'Sinhala · සිංහල');
+  assert.equal(languageLabel(getLanguage('de')!), 'German · Deutsch');
+  assert.deepEqual(transcriptionLanguages('si'), ['si', 'en']); // Sinhala speakers mix in English
+  assert.deepEqual(transcriptionLanguages('en'), ['en']);
+  assert.deepEqual(transcriptionLanguages(''), []);
+  assert.match(scriptHint('si'), /Sinhala script/);
+  assert.match(scriptHint('ta'), /Tamil script/);
+  assert.equal(scriptHint('de'), ''); // Latin script: nothing to say
+  assert.match(notesLanguageRule('en'), /^Write in English/);
+  assert.match(notesLanguageRule('si'), /Sinhala \(සිංහල\)/);
+  assert.match(notesLanguageRule('spoken'), /language that was spoken/);
+});
+
+test('token estimates follow the script', () => {
+  const english = tokensPerCharFor('So the plan for the next sprint is to finish the payments work.');
+  const sinhala = tokensPerCharFor('හැමෝටම ආයුබෝවන්, අද අපි පාඩම පටන් ගන්නවා.');
+  const mixed = tokensPerCharFor('හැමෝටම ආයුබෝවන්, අද අපි Java Spring Boot පාවිච්චි කරලා microservice එකක් හදනවා.');
+  assert.ok(english > 0.2 && english < 0.35, `english ${english}`);
+  assert.ok(sinhala > 0.6, `sinhala ${sinhala}`);
+  assert.ok(mixed > english * 1.6 && mixed < sinhala, `mixed ${mixed}`);
+});
+
+test('transcription models: old ones are replaced once shut down', () => {
+  const before = Date.UTC(2027, 0, 10);
+  const after = Date.UTC(2027, 2, 1);
+  assert.equal(effectiveTranscribeModel('gpt-4o-mini-transcribe', before), 'gpt-4o-mini-transcribe');
+  assert.equal(effectiveTranscribeModel('gpt-4o-mini-transcribe', after), 'gpt-transcribe');
+  assert.equal(effectiveTranscribeModel('gpt-transcribe', after), 'gpt-transcribe');
+  assert.ok(isDeprecatedTranscribeModel('whisper-1'));
+  assert.ok(takesLanguageList('gpt-transcribe') && !takesLanguageList('gpt-4o-transcribe'));
+  assert.deepEqual(cleanKeywords([' Priya ', 'priya', 'Q3 <roadmap>', '', 'line\nbreak']), ['Priya', 'Q3 roadmap', 'line break']);
+});
+
 test('splits the title line off enhanced notes', () => {
   assert.deepEqual(splitTitle('# Q3 roadmap review\n\n## Summary\nText'), { title: 'Q3 roadmap review', body: '## Summary\nText' });
   assert.deepEqual(splitTitle('## Summary\nText'), { body: '## Summary\nText' });
@@ -90,7 +139,8 @@ test('splits the title line off enhanced notes', () => {
 });
 
 test('builds the notes prompt from template and instructions', () => {
-  const p = summaryPrompt('standup', 'Write in British English.', '', undefined);
+  const p = summaryPrompt('standup', 'en', 'Write in British English.', '', undefined);
+  assert.match(p, /Language: Write in English/);
   assert.match(p, /## Updates/);
   assert.match(p, /- Write in British English\./);
   assert.match(summaryPrompt('nope'), /## Decisions/); // unknown → default template

@@ -30,7 +30,14 @@ const THEM = [
 const ME = ['Sounds good, I can take the release notes.', null /* echo */, 'I will send the summary to the team tonight.', 'LEAK'];
 const counters = { me: 0, them: 0 };
 let lastThem = '';
-const requests = { transcribe: 0, summary: 0, ask: 0, leaks: 0 };
+const requests = { transcribe: 0, summary: 0, ask: 0, leaks: 0, formats: [] };
+
+/** Every value of a multipart text field. */
+function fieldValues(body, name) {
+  const text = body.toString('utf8');
+  const re = new RegExp(`name="${name.replace(/[[\]]/g, '\\$&')}"\r\n\r\n([\\s\\S]*?)\r\n--`, 'g');
+  return [...text.matchAll(re)].map((m) => m[1]);
+}
 
 /** The multipart "prompt" field: the context TORU gives the transcriber. */
 function promptField(body) {
@@ -60,8 +67,18 @@ const server = http.createServer(async (req, res) => {
   }
   const body = await readBody(req);
   const json = (obj) => res.writeHead(200, { ...cors, 'Content-Type': 'application/json' }).end(JSON.stringify(obj));
-  if (req.url === '/v1/models') return json({ data: ['gpt-4o-mini-transcribe', 'gpt-5-mini'].map((id) => ({ id })) });
+  if (req.url === '/v1/models') return json({ data: ['gpt-transcribe', 'gpt-4o-mini-transcribe', 'gpt-5-mini'].map((id) => ({ id })) });
   if (req.url === '/v1/audio/transcriptions') {
+    const file = /filename="([^"]+)"/.exec(body.toString('utf8'))?.[1];
+    requests.formats.push({
+      file,
+      model: fieldValues(body, 'model')[0],
+      languages: fieldValues(body, 'languages[]'),
+      language: fieldValues(body, 'language'),
+      keywords: fieldValues(body, 'keywords[]'),
+      prompt: fieldValues(body, 'prompt')[0] ?? '',
+    });
+    if (file === 'audio.wav') return json({ text: '' }); // the Settings test: one second of silence
     requests.transcribe++;
     const speaker = body.includes('filename="them.wav"') ? 'them' : 'me';
     const n = counters[speaker]++;
@@ -228,6 +245,17 @@ try {
   check(settled.equals(atRest), 'the scrollbar disappears once scrolling stops');
   check(await main.locator('.modal-head h2').isVisible(), 'the dialog title stays in view while its body scrolls');
 
+  // Spoken language: Sinhala. Test sends one second of silence with it.
+  await main.getByRole('combobox', { name: 'Spoken language' }).click();
+  await main.getByRole('option', { name: /^Sinhala/ }).click();
+  await main.getByRole('combobox', { name: 'Write notes in' }).click();
+  await main.getByRole('option', { name: /^English/ }).click();
+  await main.getByRole('button', { name: 'Test', exact: true }).click();
+  await main.getByText('Transcription with gpt-transcribe in Sinhala works.').waitFor();
+  const probe = requests.formats.filter((f) => f.file === 'audio.wav').at(-1); // the test after choosing Sinhala
+  check(probe?.model === 'gpt-transcribe' && probe.languages.join() === 'si,en' && !probe.language.length, 'Test checks a transcription with the chosen model and language');
+  await main.screenshot({ path: join(OUT, '02c-settings-language.png') });
+
   await main.getByRole('button', { name: 'Save settings' }).click();
   await main.getByText('Settings saved').waitFor();
   check((await lastOverlay()) === '#11110f', 'window buttons return to the page colour when the dialog closes');
@@ -288,6 +316,12 @@ try {
   check((await main.locator('.turn-me').count()) > 0, 'transcript shows Me and Them bubbles');
   const echoSeen = await waitFor(async () => (await readSegments(main, live.id)).some((s) => s.echo), 'echo flagged', 30_000).catch(() => false);
   check(!!echoSeen, 'a mic line repeating the call is flagged as echo');
+  const sent = requests.formats.filter((f) => f.file !== 'audio.wav');
+  check(
+    sent.length > 0 && sent.every((f) => f.model === 'gpt-transcribe' && f.languages.join() === 'si,en' && !f.language.length && f.keywords.includes('Priya') && f.keywords.includes('Q3 roadmap')),
+    'clips go to gpt-transcribe with the languages and the folder’s keywords',
+  );
+  check(sent.every((f) => f.prompt.startsWith('Sinhala speech, written in Sinhala script') && !f.prompt.includes('Glossary')), 'the prompt asks for Sinhala script');
   await main.getByText(/repeated the call/).waitFor();
   const shownTexts = await main.locator('.bubble').allInnerTexts();
   const themTexts = shownTexts.filter((t) => THEM.some((x) => t.includes(x)));
@@ -376,6 +410,19 @@ try {
   await widget.getByText('Your notes are ready').waitFor({ timeout: 10_000 });
   await shot(widget, '14-widget-done');
 
+  // ------------------------------------------- a meeting where nothing is heard
+  await main.goto(main.url().replace(/#.*$/, '#/'));
+  await main.evaluate(() => localStorage.setItem('toru-fake-audio', 'silent'));
+  await main.getByRole('button', { name: 'Start', exact: true }).click();
+  await main.locator('.silence-alert').getByText('Your microphone isn’t sending any sound').waitFor({ timeout: 20_000 });
+  await widget.locator('.pill-alert').waitFor({ timeout: 10_000 });
+  check(true, 'a silent microphone is reported while recording (page and widget)');
+  await shot(main, '14b-silent-mic');
+  await main.locator('.rec-dock').getByRole('button', { name: 'Stop' }).click();
+  await main.getByText(/Nothing was heard in/).waitFor({ timeout: 20_000 });
+  check(true, 'a recording where nothing was heard says so when it stops');
+  await main.evaluate(() => localStorage.setItem('toru-fake-audio', '1'));
+
   // -------------------------------------------------- in person, mic only
   await main.goto(main.url().replace(/#.*$/, '#/'));
   await main.getByRole('radio', { name: 'In person' }).click();
@@ -408,7 +455,7 @@ try {
       q.onsuccess = () => res(q.result);
     };
   }));
-  check(requests.leaks > 0 && !allSegments.some((x) => /Glossary/i.test(x.text)), `text copied from the transcriber's prompt is dropped (${requests.leaks} leak(s) simulated)`);
+  check(requests.leaks > 0 && !allSegments.some((x) => /Glossary|written in Sinhala script/i.test(x.text)), `text copied from the transcriber's prompt is dropped (${requests.leaks} leak(s) simulated)`);
 
   // --------------- closing the window frees it; opening a meeting reopens it
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().includes('/index.html'))?.close());
@@ -444,6 +491,36 @@ try {
   await main.locator('.note-row mark').first().waitFor();
   check((await main.locator('.note-row').count()) >= 1, 'search finds meetings by transcript text');
   await shot(main, '17-search');
+
+  // ------------------------------------------------- a meeting in Sinhala
+  await main.getByPlaceholder('Search meetings').fill('');
+  await main.evaluate(() => new Promise((res) => {
+    const r = indexedDB.open('toru-desktop');
+    r.onsuccess = () => {
+      const tx = r.result.transaction(['notes', 'segments'], 'readwrite');
+      const now = Date.now();
+      tx.objectStore('notes').put({
+        id: 'si-note', folderId: 'inbox', title: 'Spring Boot පරිසරය සැකසීම', titleEdited: true, createdAt: now, updatedAt: now, durationMs: 22_000,
+        status: 'done', sources: 'both', myNotes: '- Kafka ගැන අහන්න', summaryModel: 'gpt-5-mini', summaryAt: now, summaryTemplate: 'meeting',
+        summary: '## සාරාංශය\nමෙම පාඩමේදී Java Spring Boot සමඟ microservice පරිසරයක් සකසන ආකාරය පෙන්වා දෙන ලදී.\n\n## ප්‍රධාන කරුණු\n- **Kafka**: සිදුවීම් ප්‍රවාහනය (event streaming) සඳහා\n- **Postgres සහ MongoDB**: දත්ත ගබඩා කිරීම සඳහා\n\n## කළ යුතු දේ\n- [ ] **Me**: GitHub repository එක පරීක්ෂා කරන්න',
+      });
+      [
+        ['them', 0, 'හැමෝටම ආයුබෝවන්, අද අපි Java Spring Boot පාවිච්චි කරලා microservice එකක් හදනවා.'],
+        ['me', 6000, 'Kafka සහ Postgres දෙකම අපිට ඕනද?'],
+        ['them', 11000, 'ඔව්, event streaming වලට Kafka, දත්ත වලට Postgres සහ MongoDB.'],
+        ['me', 17000, 'හරි, මම GitHub repository එක බලන්නම්.'],
+      ].forEach(([speaker, startMs, text], index) => tx.objectStore('segments').put({ noteId: 'si-note', index, startMs, endMs: startMs + 4000, speaker, text }));
+      tx.oncomplete = () => res();
+    };
+  }));
+  await main.goto(main.url().replace(/#.*$/, '#/note/si-note'));
+  await main.getByRole('radio', { name: 'Enhanced' }).waitFor();
+  await shot(main, '19-sinhala-notes');
+  await main.getByRole('tab', { name: 'Transcript' }).click();
+  await main.locator('.turn-them .bubble').first().waitFor();
+  await shot(main, '19b-sinhala-transcript');
+  const fontOk = await main.evaluate(() => document.fonts.check('16px "Nirmala UI"') || document.fonts.check('16px "Noto Sans Sinhala"'));
+  check(true, `Sinhala meeting renders (screenshots 19, 19b; a Sinhala-capable font is ${fontOk ? '' : 'not '}installed)`);
 } catch (e) {
   failures++;
   console.error('FAIL ', e.message);

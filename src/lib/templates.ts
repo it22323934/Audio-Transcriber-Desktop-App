@@ -1,4 +1,4 @@
-import { notesLanguageRule } from './languages';
+import { notesLanguageRule } from './languages.ts'; // with the extension, so Node's test runner can load it
 
 // Templates shape the enhanced notes written after a meeting. Each one is a
 // list of sections; the rules about speakers, the user's own notes and the
