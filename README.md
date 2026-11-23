@@ -88,13 +88,13 @@ If you quit, or Windows restarts, during a meeting, nothing is lost. The audio t
 
 | Part | Default model | Roughly |
 |---|---|---|
-| Transcription | `gpt-transcribe` | check OpenAI's pricing page; the older `gpt-4o-mini-transcribe` was ~$0.003 per minute of speech per side, so a 30-minute call where both sides talk ≈ 10–15¢ |
+| Transcription | `gpt-transcribe` | per minute of speech on each side; check OpenAI's pricing page for the current rate |
 | Enhanced notes | `gpt-5-mini` | about 1¢ per meeting |
 | Ask | `gpt-5-mini` | well under 1¢ per question for a typical meeting |
 
 Silence isn't sent: each side is only transcribed while someone on it is talking, and TORU learns your mic's background hiss so it doesn't pay to transcribe a quiet room. Check OpenAI's pricing page for current prices.
 
-**Transcription models.** OpenAI shuts down `gpt-4o-mini-transcribe`, `gpt-4o-transcribe` and `whisper-1` on **26 February 2027**. New setups use `gpt-transcribe`, OpenAI's current model. If Settings still names an older one, it shows a **Switch** button, and after that date TORU switches by itself.
+**Transcription model.** TORU uses `gpt-transcribe`, OpenAI's current transcription model, and nothing older. If your settings were saved by an earlier version with `gpt-4o-mini-transcribe`, `gpt-4o-transcribe` or `whisper-1` (which OpenAI shuts down on 26 February 2027), TORU uses `gpt-transcribe` instead, with no action needed.
 
 ## Privacy
 
@@ -118,7 +118,7 @@ Silence isn't sent: each side is only transcribed while someone on it is talking
 | Ctrl+Alt+R does nothing | Another app has that shortcut. Use the tray icon or the home page |
 | "Your microphone isn't sending any sound" | Unmute the mic (Windows, headset button, or the call app's system mute), or pick the right one under Settings → Listening |
 | "Nothing was heard … so it wasn't saved" | The recording had no speech on either side. Check the call plays on this computer and the mic is on, then record again |
-| Test says OpenAI refused a transcription | Read the message. A language may not be accepted by that model: choose Auto-detect or another model |
+| Test says OpenAI refused a transcription | Read the message. If it's about the language, choose Auto-detect for now, or another language close to it |
 | A Sinhala (or other) meeting comes back in English letters or translated | Set the **Spoken language** for the folder or in Settings; Auto-detect can mistake it |
 
 ---
