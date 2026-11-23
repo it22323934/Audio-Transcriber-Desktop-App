@@ -1,0 +1,448 @@
+/* The main window. The title bar is hidden; Windows draws its caption
+   buttons over the top-right corner, and the 44px strips at the top of the
+   sidebar and the page are where the window can be dragged. */
+
+.app {
+  display: grid;
+  grid-template-columns: 264px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+/* ---------------------------------------------------------- sidebar */
+
+.side {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 0 14px 16px;
+  border-right: 1px solid var(--line);
+  background: var(--bg-raised);
+}
+.side-top {
+  display: flex;
+  align-items: center;
+  height: 52px;
+  flex: none;
+  -webkit-app-region: drag;
+}
+.logo-link {
+  padding: 0 8px;
+  text-decoration: none;
+  -webkit-app-region: no-drag;
+}
+
+.nav {
+  display: grid;
+  gap: 1px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13.5px;
+  text-align: left;
+  text-decoration: none;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.nav-item:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+.nav-item.active {
+  background: var(--surface-active);
+  color: var(--text);
+}
+.nav-item .count {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.nav-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 6px 10px;
+}
+
+.side-foot {
+  margin-top: auto;
+  display: grid;
+  gap: 10px;
+}
+
+.live-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.live-title {
+  font-size: 13px;
+  line-height: 1.4;
+  text-decoration: none;
+  color: var(--text);
+}
+.live-title:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ------------------------------------------------------------- main */
+
+.main {
+  min-width: 0;
+  padding: 0 56px 120px;
+}
+.main-top {
+  position: sticky;
+  top: 0;
+  z-index: 15;
+  height: 44px;
+  margin: 0 -56px 20px;
+  background: var(--bg-translucent);
+  backdrop-filter: blur(10px);
+  -webkit-app-region: drag;
+}
+.page {
+  max-width: 860px;
+  margin: 0 auto;
+}
+.page-note {
+  max-width: 760px;
+}
+
+.hero {
+  margin: 10px 0 12px;
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: clamp(44px, 5.2vw, 68px);
+  line-height: 1;
+  letter-spacing: -0.028em;
+}
+.lede {
+  max-width: 62ch;
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+.project-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* ------------------------------------------------------- home: start */
+
+.start-card {
+  display: grid;
+  gap: 18px;
+  margin-top: 30px;
+  padding: 22px 22px 18px;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.start-card.live {
+  gap: 12px;
+  border-color: var(--callout-error-line);
+}
+.start-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 28px;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+.start-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.start-card .hint {
+  margin: -4px 0 0;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  background: var(--bg-raised);
+  font: 500 11px/1.5 var(--font-sans);
+  text-align: center;
+  color: var(--text-2);
+}
+
+.detected {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 28px;
+  padding: 12px 12px 12px 14px;
+  border-radius: 16px;
+  background: var(--lime-soft);
+  border: 1px solid var(--callout-lime-line);
+  color: var(--text);
+  font-size: 13.5px;
+  animation: rise 0.2s ease-out;
+}
+.detected + .start-card {
+  margin-top: 12px;
+}
+.detected-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--lime);
+  color: var(--lime-ink);
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 28px;
+}
+.step {
+  padding: 20px;
+  border-radius: 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.step-n {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--lime);
+  color: var(--lime-ink);
+  font-weight: 700;
+  font-size: 13px;
+}
+.step.done .step-n {
+  background: var(--surface-active);
+  color: var(--accent);
+}
+.step h3 {
+  margin: 14px 0 6px;
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 21px;
+  letter-spacing: -0.01em;
+}
+.step p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.link-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* --------------------------------------------------------- day lists */
+
+.day {
+  margin-top: 40px;
+}
+.day-title {
+  margin: 0 0 6px;
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 24px;
+  letter-spacing: -0.015em;
+}
+.day + .day {
+  margin-top: 30px;
+}
+
+.back {
+  margin: 0 0 0 -12px;
+  text-decoration: none;
+}
+
+/* ----------------------------------------------------------- meeting */
+
+.note-title-input {
+  font-size: 44px;
+}
+.notepad {
+  display: grid;
+  gap: 18px;
+}
+.my-notes {
+  font-size: 15.5px;
+  line-height: 1.75;
+}
+.enhance-switch {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.enhance-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: var(--lime-soft);
+  border: 1px solid var(--callout-lime-line);
+}
+.enhance-card strong {
+  font-weight: 600;
+}
+.enhance-card p {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.seg-sm button {
+  height: 26px;
+  padding: 0 12px;
+  font-size: 12.5px;
+}
+
+/* transcript as a conversation */
+.transcript-call {
+  gap: 12px;
+}
+.turn {
+  display: grid;
+  gap: 4px;
+  max-width: 82%;
+  justify-self: start;
+}
+.turn-me {
+  justify-self: end;
+  justify-items: end;
+}
+.turn-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 0 4px;
+}
+.turn .who {
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--text-2);
+}
+.turn .ts {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+}
+.bubble {
+  padding: 10px 14px;
+  border-radius: 18px 18px 18px 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.turn-me .bubble {
+  border-radius: 18px 18px 6px 18px;
+  background: var(--lime-soft);
+  border-color: var(--callout-lime-line);
+}
+.turn-echo {
+  opacity: 0.45;
+}
+.listening {
+  flex-wrap: wrap;
+  padding-left: 0;
+}
+
+/* the recording dock */
+.rec-dock {
+  position: sticky;
+  bottom: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 36px;
+  padding: 8px 8px 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg-raised);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.22);
+}
+.rec-time {
+  font-size: 13px;
+  min-width: 42px;
+}
+.dock-line {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  font-size: 12.5px;
+  text-align: left;
+}
+.dock-line:hover {
+  color: var(--text);
+}
+
+.level-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-3);
+}
+.level-them .level span {
+  background: var(--text-2);
+}
+
+@media (max-width: 900px) {
+  .app {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+  .main {
+    padding: 0 24px 80px;
+  }
+  .main-top {
+    margin: 0 -24px 16px;
+  }
+}
