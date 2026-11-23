@@ -22,6 +22,8 @@ export interface Folder {
   language: string;
   /** Template for meetings in this folder, or '' to use the default from Settings. */
   templateId: string;
+  /** Language to write this folder's notes in ('spoken', a language code, or '' for the default from Settings). */
+  notesLanguage?: string;
   /** Extra instructions added to every summary in this folder. */
   instructions: string;
   color: string;
@@ -126,6 +128,8 @@ export interface Settings {
   summaryModel: string;
   /** ISO-639-1 code, or '' for auto-detect. */
   language: string;
+  /** Language to write notes in: 'spoken' (the meeting's own) or a language code. */
+  notesLanguage: string;
   /** Default for new recordings: write enhanced notes when the meeting ends. */
   autoSummarize: boolean;
   /** Template used when neither the meeting nor its folder picks one. */
@@ -152,8 +156,16 @@ export interface Settings {
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 
+/**
+ * Problems the recorder notices while recording:
+ * - 'mic-silent': the microphone delivers no signal at all (muted in Windows, or the wrong device);
+ * - 'nothing-heard': nobody has been heard on any channel for a while.
+ */
+export type RecordingAlert = 'mic-silent' | 'nothing-heard';
+
 export interface RecordingState {
   noteId: string;
+  alerts?: RecordingAlert[];
   folderId: string;
   sources: AudioSources;
   app?: string;

@@ -55,7 +55,7 @@ export function NoteView(props: {
       <>
         {props.back}
         <div className="empty">
-          <h3>This meeting was deleted</h3>
+          <h3>This meeting isn’t here any more</h3>
         </div>
       </>
     );
@@ -268,7 +268,10 @@ export function NoteView(props: {
       </div>
 
       {live && recording && (
-        <RecordingDock recording={recording} note={note} segments={segments ?? []} onTranscript={() => setTab('transcript')} />
+        <div className="rec-dock-wrap">
+          <SilenceAlert recording={recording} note={note} />
+          <RecordingDock recording={recording} note={note} segments={segments ?? []} onTranscript={() => setTab('transcript')} />
+        </div>
       )}
       {confirmEl}
     </article>
@@ -612,6 +615,33 @@ function TranscriptPanel(props: { note: Note; segments: Segment[] | undefined; l
 }
 
 // -------------------------------------------------------------------- dock
+
+/** Says so while recording when the microphone is silent or nobody has been heard for a while. */
+function SilenceAlert({ recording, note }: { recording: RecordingState; note: Note }) {
+  const alerts = recording.paused ? [] : (recording.alerts ?? []);
+  if (!alerts.length) return null;
+  const mic = alerts.includes('mic-silent');
+  return (
+    <div className="callout callout-warn silence-alert" role="status">
+      <div className="callout-body">
+        <span>
+          {mic
+            ? 'Your microphone isn’t sending any sound. It may be muted in Windows or on your headset, or another microphone is chosen in Settings.'
+            : note.sources === 'mic'
+              ? 'Nothing has been heard for a minute. Is the microphone close enough, and is anyone speaking?'
+              : 'Nothing has been heard for a minute. Is the call’s audio playing on this computer, and is your microphone on?'}
+        </span>
+        {mic && (
+          <div className="callout-actions">
+            <button className="btn btn-sm" onClick={() => bridge.app.openMicSettings()}>
+              Windows microphone settings
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function RecordingDock(props: { recording: RecordingState; note: Note; segments: Segment[]; onTranscript: () => void }) {
   const { recording, note } = props;

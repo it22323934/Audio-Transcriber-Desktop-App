@@ -1,7 +1,10 @@
 // Transcription and enhanced-notes steps, shared by the recorder window (live)
 // and the UI (retry / regenerate buttons).
-import { isEcho, overlaps, stripPromptCopy } from './echo';
+import { isEcho, overlaps } from './echo';
+import { emit } from './events';
 import { errorMessage, formatClock, formatDate, formatDuration, sleep } from './format';
+import { encodeWav } from './audio';
+import { scriptHint, transcriptionLanguages } from './languages';
 import { chat, OpenAIError, transcribe } from './openai';
 import * as store from './store';
 import { splitTitle, summaryPrompt } from './templates';
@@ -13,14 +16,35 @@ import type { Folder, Note, PendingChunk, Segment, Speaker } from './types';
  */
 const PROMPT_CONTEXT_CHARS = 200;
 
-function transcriptionPrompt(folder: Folder | undefined, previousText: string): string {
+/** Context for the transcriber: how to write the language, then the end of what was just said. */
+function transcriptionPrompt(language: string | undefined, previousText: string): string {
   const parts: string[] = [];
-  const vocab = folder?.vocabulary.trim();
-  if (vocab) parts.push(`Glossary: ${vocab}.`);
+  const hint = scriptHint(language);
+  if (hint) parts.push(hint);
   const prev = previousText.trim();
   // Passing the tail of the previous chunk keeps wording and spelling consistent.
   if (prev) parts.push(prev.slice(-PROMPT_CONTEXT_CHARS));
   return parts.join('\n');
+}
+
+/** The folder's names and terms, one keyword each. */
+function keywordsOf(folder: Folder | undefined): string[] {
+  return (folder?.vocabulary ?? '').split(/[,;\n]/).map((t) => t.trim()).filter(Boolean);
+}
+
+/**
+ * Sends one second of silence with these settings, so Settings can say
+ * straight away whether OpenAI accepts the model and language (costs a
+ * fraction of a cent). Throws OpenAI's message if not.
+ */
+export async function testTranscription(apiKey: string, model: string, language: string): Promise<void> {
+  await transcribe({
+    apiKey,
+    model,
+    audio: encodeWav([new Int16Array(16_000)], 16_000, 16_000),
+    languages: transcriptionLanguages(language),
+    prompt: scriptHint(language),
+  });
 }
 
 /** "Me"/"Them" for calls; in-person recordings have one channel with everyone on it. */
@@ -71,16 +95,16 @@ async function transcribeChunk(chunk: PendingChunk, previousText: string): Promi
     return '';
   }
   const folder = await store.getFolder(note.folderId);
-  const prompt = transcriptionPrompt(folder, previousText);
-  const raw = await transcribe({
+  const language = folder?.language || settings.language || undefined;
+  const text = await transcribe({
     apiKey: settings.apiKey,
     model: settings.transcribeModel,
     audio: chunk.audio,
     name: `${chunk.speaker}.wav`,
-    language: folder?.language || settings.language || undefined,
-    prompt,
+    languages: transcriptionLanguages(language),
+    keywords: keywordsOf(folder),
+    prompt: transcriptionPrompt(language, previousText),
   });
-  const text = stripPromptCopy(raw, prompt);
   if (text) {
     const segment: Segment = {
       noteId: chunk.noteId,
@@ -178,7 +202,9 @@ export async function finalizeNote(
   const segments = await store.getSegments(noteId);
   if (!segments.some((s) => !s.echo && s.text.trim())) {
     if (opts.deleteIfEmpty && !note.myNotes.trim()) {
-      await store.deleteNote(noteId); // nothing was said and nothing was typed: don't leave an empty note
+      // Nothing was said and nothing was typed: don't leave an empty note, but say why it's gone.
+      await store.deleteNote(noteId);
+      emit({ type: 'toast', tone: 'info', message: `Nothing was heard in “${note.title}”, so it wasn’t saved. Check that the call’s audio plays on this computer and your microphone isn’t muted.` });
       return;
     }
     await store.updateNote(noteId, { status: 'done', error: undefined });
@@ -237,7 +263,7 @@ export async function generateSummary(noteId: string, templateId?: string): Prom
     const raw = await chat({
       apiKey: settings.apiKey,
       model: settings.summaryModel,
-      system: summaryPrompt(template, settings.instructions, folder?.instructions),
+      system: summaryPrompt(template, folder?.notesLanguage || settings.notesLanguage, settings.instructions, folder?.instructions),
       user: userMessage(note, folder, transcript),
     });
     const { title, body } = splitTitle(raw);

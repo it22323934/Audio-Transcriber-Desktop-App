@@ -13,7 +13,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
     "icons": "node scripts/gen-icons.mjs",
     "test:e2e": "npm run build && node tests/e2e.mjs",
-    "dist": "npm run build && electron-builder --win"
+    "dist": "npm run build && electron-builder --win",
+    "test:unit": "node --test tests/unit.test.ts",
+    "test:perf": "npm run build && node tests/perf.mjs"
   },
   "author": "Asiri Jayawardena",
   "devDependencies": {

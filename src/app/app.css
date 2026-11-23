@@ -442,15 +442,24 @@ kbd {
   padding-left: 0;
 }
 
-/* the recording dock */
-.rec-dock {
+/* the recording dock, with any warning just above it */
+.rec-dock-wrap {
   position: sticky;
   bottom: 16px;
   z-index: 10;
+  display: grid;
+  gap: 8px;
+  margin-top: 36px;
+}
+.silence-alert {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  background: var(--bg-raised);
+  background-image: linear-gradient(var(--amber-soft), var(--amber-soft));
+}
+.rec-dock {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 36px;
   padding: 8px 8px 8px 16px;
   border-radius: 999px;
   border: 1px solid var(--line-strong);

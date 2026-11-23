@@ -3,6 +3,7 @@
 import { bridge } from './bridge';
 import * as db from './db';
 import { emit, subscribe } from './events';
+import { RECOMMENDED_TRANSCRIBE_MODEL } from './transcribeModels';
 import { DEFAULT_TEMPLATE_ID } from './templates';
 import type { ChatMessage, Folder, Note, PendingChunk, RecordingState, Segment, Settings } from './types';
 
@@ -12,9 +13,10 @@ export const FOLDER_COLORS = ['#c9dc4c', '#7cc4e8', '#f0a07c', '#b9a3f0', '#e8c4
 
 export const DEFAULT_SETTINGS: Settings = {
   apiKey: '',
-  transcribeModel: 'gpt-4o-mini-transcribe',
+  transcribeModel: RECOMMENDED_TRANSCRIBE_MODEL,
   summaryModel: 'gpt-5-mini',
   language: '',
+  notesLanguage: 'spoken',
   autoSummarize: true,
   templateId: DEFAULT_TEMPLATE_ID,
   instructions: '',

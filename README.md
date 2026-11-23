@@ -83,7 +83,7 @@ Silence isn't sent: each side is only transcribed while someone on it is talking
 - Meetings, notes and transcripts are stored on this computer (in `%APPDATA%\TORU`). The API key is encrypted with Windows DPAPI.
 - Audio is kept only until it's transcribed, then deleted. Only text is kept.
 - Recording other people may need their consent where you live. Let people know when you're taking notes.
-- Call detection only reads which apps are using the microphone (the same information as the mic icon in the taskbar). It doesn't look at your screen or read other apps.
+- Call detection only asks Windows' audio system which programs are recording from a microphone right now (the same information as the mic icon in the taskbar). It doesn't look at your screen, listen to other apps, or read their data.
 
 ## If something goes wrong
 
@@ -95,6 +95,8 @@ Silence isn't sent: each side is only transcribed while someone on it is talking
 | Lots of "Me" lines repeating the other side | Use headphones, or lower the speaker volume. TORU hides most of them anyway |
 | A meeting says "Needs attention" | Read the message. **Retry transcription** resends audio that failed; **Try again** rewrites the notes |
 | No prompt when a call starts | Settings → *Offer to take notes when a call starts*. TORU recognises Teams, Zoom, Slack, Discord, Webex, Skype, WhatsApp, Telegram, RingCentral, GoTo and browsers (for Meet) |
+| The prompt says Teams is using your mic when you're not in a call | Teams sometimes keeps the microphone open in the background (the taskbar shows the mic icon). Press ✕; TORU asks again only when Teams next picks the mic up |
+| The same sentences appear twice in a transcript | Older recordings could have this: on quiet audio the transcriber sometimes returned the context TORU gave it. New recordings drop that copied text |
 | Ctrl+Alt+R does nothing | Another app has that shortcut. Use the tray icon or the home page |
 
 ---
@@ -104,13 +106,24 @@ Silence isn't sent: each side is only transcribed while someone on it is talking
 ```bash
 npm run dev        # Vite dev server with hot reload + Electron (restarts when electron/ changes)
 npm run typecheck
-node --test tests/unit.test.ts   # call detection, echo detection, templates
+npm run test:unit  # call detection, echo and copy detection, templates
 npm run test:e2e   # builds, then drives the real app end to end
+npm run test:perf  # idle CPU, a two-hour meeting's live updates, memory with the window closed
 ```
 
 The end-to-end suite launches the app with a throwaway profile, a mock OpenAI server and synthetic "voices" for the mic and the call. It goes through setup, a live call with both speakers (including an echo line), the floating widget and quick notes, pause/stop, enhanced notes with an AI title and checkboxes, Ask, a detected Zoom call that auto-stops, an in-person meeting, and quitting mid-meeting then recovering. Screenshots go to `.e2e-out/`. TORU's windows appear on screen while it runs.
 
 VS Code's terminal sets `ELECTRON_RUN_AS_NODE`, which makes Electron behave like plain Node. The scripts clear it; if you run `electron .` yourself from that terminal, clear it first.
+
+### Memory and CPU
+
+- **Audio:** converted to 16 kHz mono 16-bit on the audio thread; at most ~30 s per side is held in memory before it's saved; the screen picture that Windows' loopback capture requires is dropped at once; silence is never sent (each side learns its own background level); audio is deleted once transcribed.
+- **Call detection:** Windows' audio sessions are read in-process through `koffi` (about 2 ms every 2 s). No process is started. `reg.exe` is only a fallback if the native library can't load.
+- **Long meetings:** change events name the lines that changed, so the meeting page reads only new lines; the floating recorder reads only its last few; the echo check reads only nearby lines. Transcript rows are memoised and off-screen rows skip layout (`content-visibility`).
+- **In the tray:** closing the main window destroys it, so its renderer's memory is freed; it reopens at the page you asked for. Started at sign-in, it isn't loaded until you open it.
+- **Timers:** level meters run only while recording and while one is on screen.
+
+`npm run test:perf` measures all of this on a 1,500-line (two-hour) meeting. On the development machine: one call check 1.7 ms (was ~100 ms with `reg.exe`), 12 ms of main-thread work per new line (was 45–63 ms), 297 MB with the long meeting open (was 430 MB), 215 MB after closing the window (was 336 MB).
 
 ### How it fits together
 
@@ -118,7 +131,7 @@ VS Code's terminal sets `ELECTRON_RUN_AS_NODE`, which makes Electron behave like
 main process (electron/main.ts)
   • serves the pages from toru://app/ (with a strict CSP)
   • getDisplayMedia handler → screen source + Windows loopback audio
-  • meeting watcher (electron/meetings.ts): polls which apps hold the mic
+  • meeting watcher (electron/meetings.ts): which apps are capturing from a mic (WASAPI, via koffi)
   • tray, Ctrl+Alt+R, floating widget window, encrypted API key
   • relays commands to the recorder (webContents.executeJavaScript)
         │

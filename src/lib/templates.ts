@@ -1,3 +1,5 @@
+import { notesLanguageRule } from './languages';
+
 // Templates shape the enhanced notes written after a meeting. Each one is a
 // list of sections; the rules about speakers, the user's own notes and the
 // title line are the same for all of them.
@@ -151,11 +153,10 @@ const RULES = `Rules:
 - The user's own notes, written during the meeting, show what matters to them. Cover every point they wrote, filled in with the details from the transcript.
 - Use only information from the transcript and the user's notes. Never invent facts, names, numbers or dates.
 - The transcript is machine-generated: silently fix obvious mis-hearings of names and technical terms.
-- Be concise: short bullets, no filler, no preamble or closing remarks. Leave out any section that would be empty.
-- Write in the language the meeting was held in, unless told otherwise below.`;
+- Be concise: short bullets, no filler, no preamble or closing remarks. Leave out any section that would be empty.`;
 
-/** The system prompt for enhanced notes: template + shared rules + the user's extra instructions. */
-export function summaryPrompt(templateId: string | undefined, ...instructions: (string | undefined)[]): string {
+/** The system prompt for enhanced notes: template + shared rules + notes language + the user's extra instructions. */
+export function summaryPrompt(templateId: string | undefined, notesLanguage: string | undefined, ...instructions: (string | undefined)[]): string {
   const template = getTemplate(templateId);
   const extra = instructions.map((s) => s?.trim()).filter(Boolean);
   return [
@@ -163,6 +164,7 @@ export function summaryPrompt(templateId: string | undefined, ...instructions: (
     `Start with exactly one line: "# " followed by a short, specific title for the meeting (at most 8 words, no date).`,
     `Then use these sections:\n\n${template.sections}`,
     RULES,
+    `Language: ${notesLanguageRule(notesLanguage)}`,
     extra.length ? `The user's own instructions (these take priority):\n${extra.map((s) => `- ${s}`).join('\n')}` : '',
   ]
     .filter(Boolean)

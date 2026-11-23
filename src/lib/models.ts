@@ -39,6 +39,28 @@ export function inputLimit(model: string): number {
 /** Tokens per character before any real usage is known (between English ~0.25 and German ~0.3). */
 export const DEFAULT_TOKENS_PER_CHAR = 0.28;
 
+/**
+ * A starting estimate that follows the script: text in Sinhala, Tamil, Hindi
+ * and other non-Latin scripts takes several times more tokens per character
+ * than English. Deliberately on the high side; real usage replaces it after
+ * the first answer.
+ */
+export function tokensPerCharFor(sample: string): number {
+  const text = sample.slice(0, 4000);
+  let letters = 0;
+  let latin = 0;
+  let cjk = 0;
+  for (const ch of text) {
+    if (!/\p{L}/u.test(ch)) continue;
+    letters++;
+    if (/\p{Script=Latin}/u.test(ch)) latin++;
+    else if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(ch)) cjk++;
+  }
+  if (!letters) return DEFAULT_TOKENS_PER_CHAR;
+  const other = letters - latin - cjk;
+  return (latin * DEFAULT_TOKENS_PER_CHAR + other * 0.8 + cjk * 1.1) / letters;
+}
+
 export function estimateTokens(chars: number, tokensPerChar = DEFAULT_TOKENS_PER_CHAR): number {
   return Math.ceil(chars * tokensPerChar);
 }

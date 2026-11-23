@@ -72,7 +72,7 @@ export function ChatPanel(props: { note: Note; folder?: Folder; segments: Segmen
   }, [draft]);
 
   // The meeting text is the big part; build it once per change, not per keystroke.
-  const ratio = useMemo(() => tokensPerChar(messages ?? []), [messages]);
+  const ratio = useMemo(() => tokensPerChar(messages ?? [], segments), [messages, segments]);
   const meeting = useMemo(() => buildMeeting(note, folder, segments, model, ratio), [note, folder, segments, model, ratio]);
   const plan = useMemo(
     () => (messages ? planAsk({ note, folder, segments, messages, model, draft, meeting }) : undefined),

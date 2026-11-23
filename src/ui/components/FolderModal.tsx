@@ -4,7 +4,7 @@ import * as store from '../../lib/store';
 import { TEMPLATES } from '../../lib/templates';
 import type { Folder } from '../../lib/types';
 import { toast } from '../toast';
-import { LANGUAGES } from './languages';
+import { languageOptions } from '../../lib/languages';
 import { Modal, useConfirm } from './Modal';
 import { Select } from './Select';
 
@@ -22,6 +22,7 @@ export function FolderModal(props: {
   const [vocabulary, setVocabulary] = useState(editing?.vocabulary ?? '');
   const [language, setLanguage] = useState(editing?.language ?? '');
   const [templateId, setTemplateId] = useState(editing?.templateId ?? '');
+  const [notesLanguage, setNotesLanguage] = useState(editing?.notesLanguage ?? '');
   const [instructions, setInstructions] = useState(editing?.instructions ?? '');
   const [color, setColor] = useState(editing?.color ?? '');
   const [saving, setSaving] = useState(false);
@@ -37,6 +38,7 @@ export function FolderModal(props: {
         vocabulary: vocabulary.trim(),
         language,
         templateId,
+        notesLanguage,
         instructions: instructions.trim(),
         ...(color ? { color } : {}),
       };
@@ -147,10 +149,25 @@ export function FolderModal(props: {
               id="flang"
               ariaLabel="Spoken language"
               value={language}
-              options={LANGUAGES.map(([code, label]) => ({ value: code, label: code ? label : 'Use default' }))}
+              options={languageOptions([{ value: '', label: 'Use default' }])}
               onChange={setLanguage}
+              listMinWidth={300}
             />
           </div>
+        </div>
+        <div className="field">
+          <label htmlFor="fnotes">Write notes in</label>
+          <Select
+            id="fnotes"
+            ariaLabel="Write notes in"
+            value={notesLanguage}
+            options={languageOptions([
+              { value: '', label: 'Use default', description: 'The choice in Settings' },
+              { value: 'spoken', label: 'The language that was spoken' },
+            ])}
+            onChange={setNotesLanguage}
+            listMinWidth={300}
+          />
         </div>
         <div className="field">
           <label htmlFor="finstr">Extra instructions</label>

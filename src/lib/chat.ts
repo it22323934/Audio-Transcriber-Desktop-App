@@ -11,7 +11,7 @@
 // offer to compact them, instead of silently forgetting them.
 import { CopyGuard } from './copyGuard';
 import { errorMessage, formatDate } from './format';
-import { DEFAULT_TOKENS_PER_CHAR, estimateTokens, inputLimit, modelLimits } from './models';
+import { DEFAULT_TOKENS_PER_CHAR, estimateTokens, inputLimit, modelLimits, tokensPerCharFor } from './models';
 import { chatComplete, chatStream, type ChatTurn } from './openai';
 import { transcriptForAI } from './pipeline';
 import * as store from './store';
@@ -78,13 +78,16 @@ export interface MeetingPart {
   notesOnly: boolean;
 }
 
-/** Tokens per character for this conversation, learned from OpenAI's reported usage. */
-export function tokensPerChar(messages: ChatMessage[]): number {
+/**
+ * Tokens per character for this conversation: learned from OpenAI's reported
+ * usage, or estimated from the transcript's script before the first answer.
+ */
+export function tokensPerChar(messages: ChatMessage[], segments: Segment[] = []): number {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
-    if (m.usage?.prompt && m.promptChars) return Math.min(0.6, Math.max(0.15, m.usage.prompt / m.promptChars));
+    if (m.usage?.prompt && m.promptChars) return Math.min(1.5, Math.max(0.15, m.usage.prompt / m.promptChars));
   }
-  return DEFAULT_TOKENS_PER_CHAR;
+  return segments.length ? tokensPerCharFor(segments.slice(0, 40).map((s) => s.text).join(' ')) : DEFAULT_TOKENS_PER_CHAR;
 }
 
 export function buildMeeting(
@@ -167,7 +170,7 @@ export function planAsk(input: {
   meeting?: MeetingPart;
 }): AskPlan {
   const { messages, model } = input;
-  const ratio = tokensPerChar(messages);
+  const ratio = tokensPerChar(messages, input.segments);
   const meeting = input.meeting ?? buildMeeting(input.note, input.folder, input.segments, model, ratio);
   const limit = inputLimit(model);
 
@@ -275,7 +278,7 @@ export async function answer(opts: {
   const request = new AbortController();
   const forwardStop = () => request.abort();
   opts.signal.addEventListener('abort', forwardStop);
-  const meeting = buildMeeting(note, folder, segments, settings.summaryModel, tokensPerChar(messages));
+  const meeting = buildMeeting(note, folder, segments, settings.summaryModel, tokensPerChar(messages, segments));
   const guard = new CopyGuard(meeting.transcript);
   let cutAt = -1;
   let checkedAt = 0;

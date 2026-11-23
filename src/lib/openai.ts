@@ -1,4 +1,6 @@
 import { bridge } from './bridge';
+import { stripPromptCopy } from './echo';
+import { cleanKeywords, effectiveTranscribeModel, takesLanguageList } from './transcribeModels';
 import type { TokenUsage } from './types';
 
 /** https://api.openai.com/v1, or a local mock while the end-to-end tests run. */
@@ -56,18 +58,33 @@ export async function transcribe(opts: {
   audio: Blob;
   /** Sent as the file name; OpenAI ignores it (the test mock uses it to tell the speakers apart). */
   name?: string;
-  language?: string;
+  /** ISO-639-1 codes; the first is the main language. Empty = detect it. */
+  languages?: string[];
+  /** Names and terms to spell correctly. */
+  keywords?: string[];
+  /** Context: the end of what was said before, and how to write it. */
   prompt?: string;
 }): Promise<string> {
+  const model = effectiveTranscribeModel(opts.model);
+  const languages = (opts.languages ?? []).filter(Boolean);
+  const keywords = cleanKeywords(opts.keywords);
   const form = new FormData();
   form.append('file', opts.audio, opts.name ?? 'audio.wav');
-  form.append('model', opts.model);
+  form.append('model', model);
   form.append('response_format', 'json');
-  if (opts.language) form.append('language', opts.language);
-  if (opts.prompt) form.append('prompt', opts.prompt);
+  let prompt = opts.prompt?.trim() ?? '';
+  if (takesLanguageList(model)) {
+    for (const code of languages) form.append('languages[]', code);
+    for (const term of keywords) form.append('keywords[]', term);
+  } else {
+    if (languages[0]) form.append('language', languages[0]);
+    if (keywords.length) prompt = [`Glossary: ${keywords.join(', ')}.`, prompt].filter(Boolean).join('\n');
+  }
+  if (prompt) form.append('prompt', prompt);
   const res = await request('/audio/transcriptions', opts.apiKey, { method: 'POST', body: form });
   const body = await res.json();
-  return String(body?.text ?? '').trim();
+  // Drop anything the model copied back from the prompt instead of transcribing.
+  return stripPromptCopy(String(body?.text ?? '').trim(), prompt);
 }
 
 export interface ChatTurn {

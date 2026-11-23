@@ -25,7 +25,9 @@ function words(text: string): string[] {
       .toLowerCase()
       .normalize('NFKD')
       .replace(/[̀-ͯ]/g, '')
-      .match(/[\p{L}\p{N}]+(?:'[\p{L}]+)?/gu) ?? []
+      // \p{M}: vowel signs and other combining marks, which Sinhala, Tamil,
+      // Hindi and many other scripts put inside words.
+      .match(/[\p{L}\p{N}][\p{L}\p{M}\p{N}]*(?:'[\p{L}\p{M}]+)?/gu) ?? []
   );
 }
 

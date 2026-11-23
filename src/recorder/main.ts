@@ -9,7 +9,7 @@ import { emit, subscribe } from '../lib/events';
 import { defaultTitle, errorMessage } from '../lib/format';
 import { finalizeNote, retryPendingChunks, transcribeWithRetry } from '../lib/pipeline';
 import * as store from '../lib/store';
-import type { AudioSources, PendingChunk, RecordingState, Settings, Speaker } from '../lib/types';
+import type { AudioSources, PendingChunk, RecordingAlert, RecordingState, Settings, Speaker } from '../lib/types';
 import type { MainPrefs, RecorderCommand, RecorderReply } from '../shared/bridge';
 
 /** The worklet delivers 16 kHz mono 16-bit PCM in 50 ms blocks. */
@@ -37,6 +37,11 @@ const MIN_SOUND_BLOCKS = 10;
 const PAD_BLOCKS = 6;
 /** Pages showing a level meter ping this often; levels stop flowing without a recent ping. */
 const LEVEL_WATCH_TIMEOUT_MS = 5000;
+/** Below this the microphone delivers nothing at all (a working one always hisses a little). */
+const NO_SIGNAL_LEVEL = 0.0003;
+/** How long without any signal before saying the mic seems muted, and without any speech before saying nothing is heard. */
+const MIC_SILENT_MS = bridge.env.test ? 3000 : 8000;
+const NOTHING_HEARD_MS = bridge.env.test ? 5000 : 60_000;
 
 // ------------------------------------------------------------------ chunks
 
@@ -73,7 +78,8 @@ class Channel {
     return level >= Math.max(SPEECH_LEVEL, this.noiseFloor * NOISE_MARGIN);
   }
 
-  push(block: Int16Array, level: number): void {
+  /** Adds a block; returns whether it stood out from the background (someone speaking). */
+  push(block: Int16Array, level: number): boolean {
     // Align the channels: the second capture usually opens a moment after the first.
     this.cursorMs ??= Math.max(0, this.session.elapsedMs() - BLOCK_MS);
     const loud = this.isSound(level);
@@ -91,6 +97,7 @@ class Channel {
     const seconds = this.length / SAMPLE_RATE;
     const endOfTurn = seconds >= MIN_TURN_SEC && this.sounding >= MIN_SOUND_BLOCKS && this.quietRun * BLOCK_MS >= TURN_PAUSE_MS;
     if (seconds >= MAX_CHUNK_SEC || endOfTurn || (seconds >= MIN_CHUNK_SEC && this.atPause())) this.cut();
+    return loud;
   }
 
   /** True when the last ~100 ms are background, or clearly quieter than this chunk's average. */
@@ -172,8 +179,8 @@ class MeetingSession {
     return c;
   }
 
-  push(speaker: Speaker, block: Int16Array, level: number): void {
-    this.channel(speaker).push(block, level);
+  push(speaker: Speaker, block: Int16Array, level: number): boolean {
+    return this.channel(speaker).push(block, level);
   }
 
   cutAll(): Promise<void> {
@@ -330,7 +337,16 @@ async function openCapture(sources: AudioSources, settings: Settings): Promise<C
   const opened: Source[] = [];
   try {
     await ctx.audioWorklet.addModule(new URL('pcm-worklet.js', location.href).toString());
-    if (bridge.env.test && localStorage.getItem('toru-fake-audio') === '1') {
+    const fake = bridge.env.test ? localStorage.getItem('toru-fake-audio') : null;
+    if (fake === 'silent') {
+      // Test stand-in for a muted microphone and a silent call: no signal at all.
+      for (const speaker of sources === 'both' ? (['me', 'them'] as const) : (['me'] as const)) {
+        const zero = ctx.createConstantSource();
+        zero.offset.value = 0;
+        zero.start();
+        opened.push({ speaker, node: zero });
+      }
+    } else if (fake === '1') {
       opened.push({ speaker: 'me', node: fakeVoice(ctx, { freq: 330, on: 1.6, off: 3.4, delay: 2.4 }) });
       if (sources === 'both') opened.push({ speaker: 'them', node: fakeVoice(ctx, { freq: 220, on: 3, off: 2, delay: 0.2 }) });
     } else {
@@ -355,6 +371,8 @@ async function openCapture(sources: AudioSources, settings: Settings): Promise<C
     });
     await ctx.resume();
     watchLevels(true);
+    resetSilenceClocks();
+    watchAlerts(true);
     return { ctx, sources: opened, worklets };
   } catch (e) {
     for (const s of opened) s.stream?.getTracks().forEach((t) => t.stop());
@@ -365,6 +383,7 @@ async function openCapture(sources: AudioSources, settings: Settings): Promise<C
 
 async function closeCapture(c: Capture): Promise<void> {
   watchLevels(false);
+  watchAlerts(false);
   for (const w of c.worklets) {
     w.port.onmessage = null;
     w.disconnect();
@@ -373,9 +392,42 @@ async function closeCapture(c: Capture): Promise<void> {
   await c.ctx.close().catch(() => {});
 }
 
+/** When each channel last delivered any signal, and when anyone was last heard. */
+const lastSignal: Record<Speaker, number> = { me: 0, them: 0 };
+let lastHeard = 0;
+
 function onBlock(speaker: Speaker, pcm: Int16Array, level: number): void {
   levels[speaker] = state?.paused ? 0 : level;
-  if (session && state && !state.paused) session.push(speaker, pcm, level);
+  if (!session || !state || state.paused) return;
+  const now = Date.now();
+  if (level > NO_SIGNAL_LEVEL) lastSignal[speaker] = now;
+  if (session.push(speaker, pcm, level)) lastHeard = now;
+}
+
+/** Starts the clocks again (on start and resume), so a pause doesn't count as silence. */
+function resetSilenceClocks(): void {
+  const now = Date.now();
+  lastSignal.me = lastSignal.them = lastHeard = now;
+}
+
+// Once a second while recording: is the microphone silent, or has nobody been heard for a while?
+let alertTimer: ReturnType<typeof setInterval> | null = null;
+function watchAlerts(on: boolean): void {
+  if (!on) {
+    if (alertTimer) clearInterval(alertTimer);
+    alertTimer = null;
+    return;
+  }
+  alertTimer ??= setInterval(() => {
+    if (!state || state.paused || !capture) return;
+    const now = Date.now();
+    const alerts: RecordingAlert[] = [];
+    if (capture.sources.some((s) => s.speaker === 'me') && now - lastSignal.me > MIC_SILENT_MS) alerts.push('mic-silent');
+    if (now - lastHeard > NOTHING_HEARD_MS) alerts.push('nothing-heard');
+    if (alerts.join() !== (state.alerts ?? []).join()) {
+      void publishState({ ...state, alerts: alerts.length ? alerts : undefined });
+    }
+  }, 1000);
 }
 
 // Level meters update ~10x a second, only while recording and something shows one.
@@ -467,7 +519,8 @@ async function pause(): Promise<RecorderReply> {
 
 async function resume(): Promise<RecorderReply> {
   if (!state || !state.paused) return { ok: true };
-  await publishState({ ...state, paused: false, runningSince: Date.now() });
+  resetSilenceClocks();
+  await publishState({ ...state, paused: false, runningSince: Date.now(), alerts: undefined });
   return { ok: true };
 }
 

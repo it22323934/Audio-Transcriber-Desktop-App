@@ -124,6 +124,11 @@ function Recording() {
           {open ? <IconChevronUp size={15} /> : <IconChevronDown size={15} />}
         </button>
       </div>
+      {!recording.paused && recording.alerts?.length ? (
+        <div className="pill-alert" role="status">
+          {recording.alerts.includes('mic-silent') ? 'Your mic isn’t sending any sound. Muted?' : 'Nothing heard for a minute'}
+        </div>
+      ) : null}
       {open && note && (
         <div className="pill-body">
           <div className="pill-lines">
